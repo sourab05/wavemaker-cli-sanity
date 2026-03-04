@@ -1,0 +1,572 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>WaveMaker CLI Sanity — Test Cases &amp; Approach</title>
+<style>
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+    color: #172b4d;
+    line-height: 1.6;
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 32px;
+    background: #fff;
+  }
+  h1 { font-size: 28px; border-bottom: 2px solid #0052cc; padding-bottom: 10px; margin-top: 40px; }
+  h2 { font-size: 22px; color: #0052cc; margin-top: 36px; border-bottom: 1px solid #dfe1e6; padding-bottom: 6px; }
+  h3 { font-size: 17px; color: #253858; margin-top: 24px; }
+  table { border-collapse: collapse; width: 100%; margin: 16px 0; }
+  th, td { border: 1px solid #c1c7d0; padding: 10px 12px; text-align: left; vertical-align: top; font-size: 14px; }
+  th { background-color: #deebff; color: #0052cc; font-weight: 600; }
+  tr:nth-child(even) td { background-color: #f4f5f7; }
+  code {
+    background: #f4f5f7;
+    border: 1px solid #dfe1e6;
+    border-radius: 3px;
+    padding: 1px 5px;
+    font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+    font-size: 13px;
+    color: #172b4d;
+  }
+  pre {
+    background: #f4f5f7;
+    border: 1px solid #dfe1e6;
+    border-radius: 3px;
+    padding: 14px 16px;
+    font-family: 'SFMono-Regular', Consolas, monospace;
+    font-size: 13px;
+    overflow-x: auto;
+    line-height: 1.5;
+  }
+  .panel {
+    border: 1px solid #dfe1e6;
+    border-left: 4px solid #0052cc;
+    border-radius: 3px;
+    padding: 14px 18px;
+    margin: 16px 0;
+    background: #f4f5f7;
+  }
+  .panel-info { border-left-color: #0065ff; background: #deebff; }
+  .panel-success { border-left-color: #36b37e; background: #e3fcef; }
+  .panel-warning { border-left-color: #ff991f; background: #fffae6; }
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #fff;
+  }
+  .badge-blue { background: #0052cc; }
+  .badge-green { background: #36b37e; }
+  .badge-yellow { background: #ff991f; color: #172b4d; }
+  .badge-gray { background: #6b778c; }
+  .toc { background: #deebff; border: 2px solid #0052cc; border-radius: 6px; padding: 20px 28px; margin: 24px 0; }
+  .toc ul { margin: 8px 0; padding-left: 22px; }
+  .toc li { margin: 6px 0; font-size: 15px; }
+  .toc a { color: #0052cc; text-decoration: underline; font-weight: 600; }
+  .toc a:hover { color: #0747a6; background: #b3d4ff; padding: 1px 4px; border-radius: 3px; }
+  .status-pass { color: #36b37e; font-weight: 600; }
+  .status-skip { color: #ff991f; font-weight: 600; }
+  .meta-table td:first-child { font-weight: 600; width: 180px; background: #f4f5f7; }
+</style>
+</head>
+<body>
+
+<!-- ======================= HEADER ======================= -->
+
+<h1>WaveMaker CLI Sanity — Test Cases &amp; Approach</h1>
+
+<table class="meta-table" style="max-width:500px;">
+  <tr><td>Framework</td><td>Mocha + WebDriverIO (Standalone) + Allure</td></tr>
+  <tr><td>Architecture</td><td>Page Object Model (POM) + Service Layer</td></tr>
+  <tr><td>Language</td><td>TypeScript</td></tr>
+  <tr><td>Total Test Cases</td><td><strong>18</strong></td></tr>
+  <tr><td>Last Updated</td><td>February 2026</td></tr>
+</table>
+
+<!-- ======================= TOC ======================= -->
+
+<div class="toc">
+  <strong style="font-size: 17px;">📑 Table of Contents</strong>
+  <p style="margin: 4px 0 10px 0; font-size: 16px; color: #505f79;">Click on any link below to jump directly to that section.</p>
+  <ul>
+    <li><a href="#architecture">1. Framework Architecture</a></li>
+    <li><a href="#spec1">2. Spec 1 — AppChef CLI Version Compatibility</a></li>
+    <li><a href="#spec2">3. Spec 2 — WM CLI Sync &amp; Web Preview</a></li>
+    <li><a href="#spec3">4. Spec 3 — React Native App Build &amp; Run</a></li>
+    <li><a href="#spec4">5. Spec 4 — Maven Build &amp; Expo Go Verification</a></li>
+    <li><a href="#howtorun">6. How to Run</a></li>
+    <li><a href="#failure">7. Failure Handling Strategy</a></li>
+    <li><a href="#mapping">8. POM &amp; Services Mapping</a></li>
+  </ul>
+</div>
+
+<!-- ======================= ARCHITECTURE ======================= -->
+
+<h2 id="architecture">1. Framework Architecture</h2>
+
+<pre>
+wavemaker-cli-sanity/
+├── test/specs/                          ← <strong>Spec Files (Test Cases)</strong>
+│   ├── appchef-version.spec.ts
+│   ├── preview-cli.spec.ts
+│   ├── app-build.spec.ts
+│   └── maven-expo.spec.ts
+│
+├── src/pages/                           ← <strong>Page Object Model</strong>
+│   ├── BasePage.ts                        (common: wait, screenshot, close)
+│   ├── NativeApp.page.ts                  (native Android/iOS app)
+│   ├── ExpoGoApp.page.ts                  (Expo Go container app)
+│   └── WebPreview.page.ts                 (browser-based web preview)
+│
+├── src/services/                        ← <strong>Business Logic Layer</strong>
+│   ├── AuthService.ts                     (WM Studio authentication)
+│   ├── ProjectService.ts                  (export, download, extract)
+│   ├── MavenService.ts                    (mvn builds, RN ZIP generation)
+│   └── AppiumService.ts                   (Appium server lifecycle)
+│
+├── src/helpers/
+│   └── DriverFactory.ts                 ← <strong>Session Factory</strong>
+│                                          (Appium / Browser / BrowserStack)
+├── src/utils/
+│   ├── Logger.ts                          (structured logging)
+│   ├── run-command.ts                     (shell command runner)
+│   ├── zip-utils.ts                       (ZIP extraction)
+│   └── process-utils.ts                   (process cleanup)
+│
+└── src/config/index.ts                  ← <strong>Centralized Configuration</strong>
+</pre>
+
+<div class="panel panel-info">
+  <strong>Design Principle:</strong> Tests (specs) contain <em>only</em> test orchestration. All UI interactions go through Page Objects. All business operations go through Services. All WebDriverIO session management goes through DriverFactory.
+</div>
+
+<!-- ======================= SPEC 1 ======================= -->
+
+<h2 id="spec1">2. Spec 1 — AppChef CLI Version Compatibility</h2>
+
+<table class="meta-table" style="max-width:420px;">
+  <tr><td>File</td><td><code>test/specs/appchef-version.spec.ts</code></td></tr>
+  <tr><td>Suite Timeout</td><td>30 seconds</td></tr>
+  <tr><td>Test Count</td><td><span class="badge badge-blue">1</span></td></tr>
+  <tr><td>Page Objects</td><td>None</td></tr>
+  <tr><td>Services</td><td>None (direct HTTP)</td></tr>
+</table>
+
+<p><strong>Purpose:</strong> Ensures the latest <code>wm-reactnative-cli</code> version on GitHub is compatible with the version range declared in the AppChef build agent.</p>
+
+<table>
+  <thead>
+    <tr><th style="width:40px">#</th><th style="width:30%">Test Case</th><th>Approach</th><th style="width:25%">Assertions</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><span class="badge badge-gray">before</span></td>
+      <td><strong>Setup</strong></td>
+      <td>Fetches <code>package.json</code> from both GitHub repos in parallel (<code>Promise.all</code>). Extracts the CLI version and AppChef's declared dependency range. Validates the CLI version is valid semver. Fails fast if either HTTP request fails or the dependency entry is missing.</td>
+      <td>—</td>
+    </tr>
+    <tr>
+      <td>1</td>
+      <td><strong>should have the latest CLI version satisfy the AppChef dependency range</strong></td>
+      <td>Uses <code>semver.satisfies(latestVersion, appchefRange)</code> to verify compatibility.</td>
+      <td>Asserts <code>true</code>. Error message includes both versions and specifies which repo needs an update.</td>
+    </tr>
+    <tr>
+      <td><span class="badge badge-gray">after</span></td>
+      <td><strong>Teardown</strong></td>
+      <td>Logs suite completion.</td>
+      <td>—</td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- ======================= SPEC 2 ======================= -->
+
+<h2 id="spec2">3. Spec 2 — WM CLI Sync &amp; Web Preview</h2>
+
+<table class="meta-table" style="max-width:420px;">
+  <tr><td>File</td><td><code>test/specs/preview-cli.spec.ts</code></td></tr>
+  <tr><td>Suite Timeout</td><td>20 minutes</td></tr>
+  <tr><td>Test Count</td><td><span class="badge badge-blue">4</span></td></tr>
+  <tr><td>Page Objects</td><td><code>ExpoGoAppPage</code>, <code>WebPreviewPage</code></td></tr>
+  <tr><td>Services</td><td><code>AuthService</code>, <code>AppiumService</code></td></tr>
+</table>
+
+<p><strong>Purpose:</strong> Tests the CLI <code>sync</code> command (project synchronization from WaveMaker Studio) and both web preview modes (Expo-based and Esbuild-based).</p>
+
+<table>
+  <thead>
+    <tr><th style="width:40px">#</th><th style="width:28%">Test Case</th><th>Approach</th><th style="width:22%">Verification</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><span class="badge badge-gray">before</span></td>
+      <td><strong>Authentication &amp; Preview URL</strong></td>
+      <td>
+        <strong>Step 1:</strong> Loads <code>PreviewCLIConfig</code> from <code>.env</code>.<br>
+        <strong>Step 2:</strong> Creates <code>AuthService</code> and authenticates against WaveMaker Studio (<code>POST /login/authenticate</code>) to obtain <code>auth_cookie</code>.<br>
+        <strong>Step 3:</strong> Calls the Studio deployment API to get the live preview URL.
+      </td>
+      <td>Auth cookie obtained. Preview URL is valid HTTPS.</td>
+    </tr>
+    <tr>
+      <td>1</td>
+      <td><strong>should run sync command and capture the Expo project path</strong></td>
+      <td>
+        Executes <code>wm-reactnative-cli sync "&lt;previewUrl&gt;"</code>.<br>
+        Monitors stdout with regex to capture the generated project path.<br>
+        Auto-handles the interactive <code>token:</code> prompt by writing the cookie value to stdin (with ANSI code stripping for reliable detection).
+      </td>
+      <td>Generated Expo project directory exists on disk.</td>
+    </tr>
+    <tr>
+      <td>2</td>
+      <td><strong>should start the project and verify the app in Expo Go on Android</strong></td>
+      <td>
+        <strong>Step 1:</strong> Starts Appium server via <code>AppiumService</code>.<br>
+        <strong>Step 2:</strong> Creates Appium session targeting Expo Go (<code>host.exp.exponent</code>) via <code>DriverFactory</code>.<br>
+        <strong>Step 3:</strong> Runs <code>npm run android</code> in the synced project; waits for Metro to report "Waiting on localhost:8081".<br>
+        <strong>Step 4:</strong> Uses <code>ExpoGoAppPage</code> POM to verify accessibility ID is displayed.
+      </td>
+      <td><code>~mobile_navbar1_title</code> visible within 60s. Screenshot captured on failure. <strong>Skips</strong> if test 1 failed.</td>
+    </tr>
+    <tr>
+      <td>3</td>
+      <td><strong>should run Expo web-preview and generate the Expo Web App</strong></td>
+      <td>
+        <strong>Step 1:</strong> Runs <code>wm-reactnative-cli run web-preview "&lt;previewUrl&gt;"</code>; waits for "Project transpiled successfully".<br>
+        <strong>Step 2:</strong> Launches Chrome via <code>DriverFactory.createBrowserSession()</code>.<br>
+        <strong>Step 3:</strong> Uses <code>WebPreviewPage</code> POM to navigate and verify the navbar XPath.
+      </td>
+      <td>XPath <code>(//h1[@aria-label='mobile_navbar1_title']...)[2]</code> visible within 30s. Screenshot on failure.</td>
+    </tr>
+    <tr>
+      <td>4</td>
+      <td><strong>should run Esbuild web-preview and generate the Esbuild Web App</strong></td>
+      <td>
+        Runs <code>wm-reactnative-cli run web-preview "&lt;previewUrl&gt;" --esbuild</code>.<br>
+        Waits for the "Project transpiled successfully" success message.
+      </td>
+      <td>CLI exits with the success message in stdout.</td>
+    </tr>
+    <tr>
+      <td><span class="badge badge-gray">after</span></td>
+      <td><strong>Cleanup</strong></td>
+      <td>Kills any leftover Metro process. Stops Appium server if still running.</td>
+      <td>—</td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- ======================= SPEC 3 ======================= -->
+
+<h2 id="spec3">4. Spec 3 — React Native App Build &amp; Run</h2>
+
+<table class="meta-table" style="max-width:420px;">
+  <tr><td>File</td><td><code>test/specs/app-build.spec.ts</code></td></tr>
+  <tr><td>Suite Timeout</td><td>Governed by <code>BUILD_TIMEOUT</code> (default: 45 min)</td></tr>
+  <tr><td>Test Count</td><td><span class="badge badge-blue">3</span></td></tr>
+  <tr><td>Page Objects</td><td><code>NativeAppPage</code></td></tr>
+  <tr><td>Services</td><td><code>DriverFactory</code> (Appium + BrowserStack)</td></tr>
+</table>
+
+<p><strong>Purpose:</strong> Builds a React Native project into native Android APK and iOS IPA, then verifies the built apps run correctly on emulator/BrowserStack.</p>
+
+<table>
+  <thead>
+    <tr><th style="width:40px">#</th><th style="width:28%">Test Case</th><th>Approach</th><th style="width:22%">Verification</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><span class="badge badge-gray">before</span></td>
+      <td><strong>Project Setup</strong></td>
+      <td>
+        <strong>Step 1:</strong> Loads <code>AppConfig</code> from <code>.env</code>.<br>
+        <strong>Step 2:</strong> Cleans and recreates the <code>Artifacts/</code> build directory.<br>
+        <strong>Step 3:</strong> Creates <code>wm_rn_config.json</code> if missing (app name, bundle ID, version).<br>
+        <strong>Step 4:</strong> Runs <code>npm install</code> in the RN project directory, auto-responding to eject/port prompts.
+      </td>
+      <td>Dependencies installed without error.</td>
+    </tr>
+    <tr>
+      <td>1</td>
+      <td><strong>should build the Android APK successfully</strong></td>
+      <td>
+        Runs <code>wm-reactnative build android "&lt;projectPath&gt;" --dest="&lt;artifactsDir&gt;" --auto-eject=true</code>.<br>
+        Waits for "android BUILD SUCCEEDED" in stdout.<br>
+        Scans <code>output/android/</code> for <code>.apk</code> files.
+      </td>
+      <td>At least one <code>.apk</code> file exists in the output directory.</td>
+    </tr>
+    <tr>
+      <td>2</td>
+      <td><strong>should install and verify the Android app on emulator</strong></td>
+      <td>
+        <strong>Step 1:</strong> Checks <code>adb devices</code> for a connected emulator.<br>
+        <strong>Step 2:</strong> Installs APK via <code>adb install -r</code>.<br>
+        <strong>Step 3:</strong> Creates Appium session (UiAutomator2) via <code>DriverFactory</code>.<br>
+        <strong>Step 4:</strong> Uses <code>NativeAppPage</code> POM — calls <code>activateApp()</code> then <code>verifyAppLaunched()</code> to check the accessibility ID.
+      </td>
+      <td><code>~mobile_navbar1_title</code> visible after activation. Screenshot on failure. <strong>Skips</strong> if APK not available.</td>
+    </tr>
+    <tr>
+      <td>3</td>
+      <td><strong>should build the iOS IPA successfully</strong></td>
+      <td>
+        <span class="badge badge-yellow">Conditional</span> Skips if not macOS or if iOS certificates are missing.<br>
+        Runs <code>wm-reactnative build ios</code> with P12 certificate, provisioning profile, and password flags.<br>
+        Polls for the expected IPA file during build.<br>
+        <strong>If <code>RUN_LOCAL=false</code>:</strong> Additionally launches the IPA on BrowserStack (XCUITest on iPhone 15 Plus) and verifies the same accessibility ID.
+      </td>
+      <td>IPA file exists at expected path. BrowserStack (when enabled): element visible on real iOS device. Screenshot on failure.</td>
+    </tr>
+    <tr>
+      <td><span class="badge badge-gray">after</span></td>
+      <td><strong>Teardown</strong></td>
+      <td>Shuts down Android emulator via <code>adb emu kill</code>. Logs gracefully if already stopped.</td>
+      <td>—</td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- ======================= SPEC 4 ======================= -->
+
+<h2 id="spec4">5. Spec 4 — Maven Build &amp; Expo Go Verification</h2>
+
+<table class="meta-table" style="max-width:420px;">
+  <tr><td>File</td><td><code>test/specs/maven-expo.spec.ts</code></td></tr>
+  <tr><td>Suite Timeout</td><td>30 minutes</td></tr>
+  <tr><td>Test Count</td><td><span class="badge badge-blue">10</span></td></tr>
+  <tr><td>Page Objects</td><td><code>ExpoGoAppPage</code></td></tr>
+  <tr><td>Services</td><td><code>ProjectService</code>, <code>MavenService</code>, <code>AppiumService</code></td></tr>
+</table>
+
+<p><strong>Purpose:</strong> End-to-end pipeline — downloads a WaveMaker project from Studio, builds the backend WAR, generates React Native ZIPs for both DEV and DEPLOYED backends, then verifies each app runs in Expo Go on Android and iOS.</p>
+
+<table>
+  <thead>
+    <tr><th style="width:40px">#</th><th style="width:28%">Test Case</th><th>Approach</th><th style="width:22%">Verification</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><span class="badge badge-gray">before</span></td>
+      <td><strong>Config &amp; Appium</strong></td>
+      <td>Loads <code>WMProjectConfig</code> from <code>.env</code>. Logs all config (project ID, environment, server URLs). Starts Appium server via <code>AppiumService</code>.</td>
+      <td>Appium server running.</td>
+    </tr>
+    <tr>
+      <td>1</td>
+      <td><strong>should download and extract WaveMaker project from studio</strong></td>
+      <td>
+        Uses <code>ProjectService.downloadAndExtract()</code>:<br>
+        (a) Authenticates via <code>POST /login/authenticate</code><br>
+        (b) Exports project via <code>POST .../export</code> with ZIP options<br>
+        (c) Downloads ZIP via HTTP stream<br>
+        (d) Extracts with <code>adm-zip</code>
+      </td>
+      <td>Extracted directory exists and contains <code>pom.xml</code>.</td>
+    </tr>
+    <tr>
+      <td>2</td>
+      <td><strong>should build backend WAR file using mvn clean install</strong></td>
+      <td>Uses <code>MavenService.cleanInstall()</code> — runs <code>mvn clean install</code>, waits for "BUILD SUCCESS", scans <code>target/</code> for <code>.war</code> file.</td>
+      <td>WAR file exists on disk. <strong>Skips</strong> if project not downloaded.</td>
+    </tr>
+    <tr>
+      <td>3</td>
+      <td><strong>should generate React Native ZIP with DEV server URL</strong></td>
+      <td>Uses <code>MavenService.buildRnZip('dev', 'dev')</code> — runs <code>mvn clean package -Dmobile.serverUrl="dev"</code>, finds the ZIP, renames with <code>-dev</code> suffix.</td>
+      <td>ZIP file exists with <code>-dev</code> suffix.</td>
+    </tr>
+    <tr>
+      <td>4</td>
+      <td><strong>should generate React Native ZIP with DEPLOYED server URL</strong></td>
+      <td>Same flow with the deployed server URL and <code>-deployed</code> suffix.</td>
+      <td>ZIP file exists with <code>-deployed</code> suffix.</td>
+    </tr>
+    <tr>
+      <td>5</td>
+      <td><strong>should extract and prepare DEV React Native project</strong></td>
+      <td><code>MavenService.extractAndPrepareProject()</code> — extracts ZIP, runs <code>npm install</code>.</td>
+      <td>Extracted directory exists. <strong>Skips</strong> if ZIP unavailable.</td>
+    </tr>
+    <tr>
+      <td>6</td>
+      <td><strong>should extract and prepare DEPLOYED React Native project</strong></td>
+      <td>Same as above for the DEPLOYED ZIP.</td>
+      <td>Extracted directory exists.</td>
+    </tr>
+    <tr>
+      <td>7</td>
+      <td><strong>should run and verify DEV app in Expo Go on Android</strong></td>
+      <td>
+        <code>runInExpoGo()</code> helper:<br>
+        (a) Appium session → Expo Go<br>
+        (b) Spawns <code>npm run android</code>, waits for Metro ready<br>
+        (c) 15s delay for app load<br>
+        (d) <code>ExpoGoAppPage.verifyAppRunning()</code>
+      </td>
+      <td>Element visible within 60s. Screenshot on failure. <span class="badge badge-yellow">SKIP_EXPO_GO</span></td>
+    </tr>
+    <tr>
+      <td>8</td>
+      <td><strong>should run and verify DEPLOYED app in Expo Go on Android</strong></td>
+      <td>Same as test 7, using the DEPLOYED project (real backend URL).</td>
+      <td>Element visible.</td>
+    </tr>
+    <tr>
+      <td>9</td>
+      <td><strong>should run and verify DEV app in Expo Go on iOS simulator</strong></td>
+      <td><span class="badge badge-yellow">macOS only</span> Opens iOS Simulator, waits 10s, then calls <code>runInExpoGo()</code> with XCUITest + <code>host.exp.Exponent</code>. iOS has a 20s post-startup wait (slower simulator).</td>
+      <td>Element visible. Skips if not macOS.</td>
+    </tr>
+    <tr>
+      <td>10</td>
+      <td><strong>should run and verify DEPLOYED app in Expo Go on iOS simulator</strong></td>
+      <td>Same as test 9, using the DEPLOYED project.</td>
+      <td>Element visible.</td>
+    </tr>
+    <tr>
+      <td><span class="badge badge-gray">after</span></td>
+      <td><strong>Cleanup &amp; Summary</strong></td>
+      <td>Stops Appium server. Prints summary of all generated artifacts (WAR, DEV ZIP, DEPLOYED ZIP).</td>
+      <td>—</td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- ======================= HOW TO RUN ======================= -->
+
+<h2 id="howtorun">6. How to Run</h2>
+
+<h3>Run Individual Specs</h3>
+<table>
+  <thead><tr><th>Command</th><th>What It Runs</th></tr></thead>
+  <tbody>
+    <tr><td><code>npm run test:appchef</code></td><td>AppChef version compatibility only</td></tr>
+    <tr><td><code>npm run test:preview</code></td><td>Sync + Expo Go + Web Preview only</td></tr>
+    <tr><td><code>npm run test:build</code></td><td>APK/IPA Build + Emulator verification only</td></tr>
+    <tr><td><code>npm run test:maven</code></td><td>Maven Build + Expo Go verification only</td></tr>
+    <tr><td><code>npm test</code></td><td>All 4 specs</td></tr>
+  </tbody>
+</table>
+
+<h3>Reporting</h3>
+<table>
+  <thead><tr><th>Command</th><th>What It Does</th></tr></thead>
+  <tbody>
+    <tr><td><code>npm run report:generate</code></td><td>Generates HTML report from <code>allure-results/</code></td></tr>
+    <tr><td><code>npm run report:open</code></td><td>Opens the report in browser</td></tr>
+    <tr><td><code>npm run report:upload</code></td><td>Uploads report to S3</td></tr>
+  </tbody>
+</table>
+
+<h3>CI / Jenkins</h3>
+<pre>./run-cli-tests.sh &lt;branch-name&gt;</pre>
+<p>This script clones/updates the CLI repo, links it locally, runs all specs with Allure, generates the report, and uploads to S3.</p>
+
+<!-- ======================= FAILURE HANDLING ======================= -->
+
+<h2 id="failure">7. Failure Handling Strategy</h2>
+
+<h3>7.1 Screenshot on Failure</h3>
+<p>Every test with Appium or browser interaction captures a screenshot before rethrowing:</p>
+<pre>catch (error) {
+  if (client) await DriverFactory.takeScreenshot(client, 'descriptive-name');
+  throw error;
+}</pre>
+<p>Screenshots are saved to <code>allure-results/</code> with timestamped filenames and attached to Allure reports.</p>
+
+<h3>7.2 Graceful Dependency Skipping</h3>
+<p>Tests that depend on a prior test's output skip instead of failing:</p>
+<pre>if (!projectPath) {
+  log.warn('Skipping: project not downloaded');
+  this.skip();
+}</pre>
+
+<div class="panel panel-success">
+  <strong>Benefit:</strong> Only the root cause test is marked as <strong>failed</strong>. Dependent tests show as <strong>skipped</strong>, preventing a cascade of false failures in the report.
+</div>
+
+<h3>7.3 Resource Cleanup</h3>
+<table>
+  <thead><tr><th>Resource</th><th>Cleanup Location</th><th>Method</th></tr></thead>
+  <tbody>
+    <tr><td>Appium sessions</td><td><code>finally</code> block in each test</td><td><code>DriverFactory.closeSession(client)</code></td></tr>
+    <tr><td>Browser sessions</td><td><code>finally</code> block</td><td><code>DriverFactory.closeSession(browser)</code></td></tr>
+    <tr><td>Metro processes</td><td><code>finally</code> block + <code>after</code> hook</td><td><code>killProcess(metroProcess)</code></td></tr>
+    <tr><td>Appium server</td><td><code>after</code> hook</td><td><code>appiumService.stop()</code></td></tr>
+    <tr><td>Android emulator</td><td><code>after</code> hook</td><td><code>adb emu kill</code></td></tr>
+  </tbody>
+</table>
+
+<h3>7.4 Timeout Configuration</h3>
+<table>
+  <thead><tr><th>Scope</th><th>Default</th><th>Configurable Via</th></tr></thead>
+  <tbody>
+    <tr><td>AppChef spec</td><td>30 seconds</td><td>Hardcoded</td></tr>
+    <tr><td>Preview CLI suite</td><td>20 minutes</td><td><code>SYNC_TIMEOUT</code></td></tr>
+    <tr><td>App build — npm install</td><td>5 minutes</td><td><code>INSTALL_TIMEOUT</code></td></tr>
+    <tr><td>App build — APK/IPA</td><td>45 minutes</td><td><code>BUILD_TIMEOUT</code></td></tr>
+    <tr><td>Maven suite</td><td>30 minutes</td><td>Per-test overrides</td></tr>
+    <tr><td>Expo Go verification</td><td>10 minutes</td><td>Per-test hardcoded</td></tr>
+  </tbody>
+</table>
+
+<h3>7.5 Conditional Execution</h3>
+<table>
+  <thead><tr><th>Condition</th><th>Affected Tests</th><th>Behavior</th></tr></thead>
+  <tbody>
+    <tr><td><code>os.platform() !== 'darwin'</code></td><td>All iOS tests</td><td>Skipped with info log</td></tr>
+    <tr><td>Missing iOS certificates</td><td>iOS IPA build</td><td>Skipped with info log</td></tr>
+    <tr><td><code>SKIP_EXPO_GO=true</code></td><td>All Expo Go verification tests</td><td>Skipped</td></tr>
+    <tr><td><code>RUN_LOCAL=false</code></td><td>BrowserStack iOS verification</td><td>Enabled</td></tr>
+  </tbody>
+</table>
+
+<!-- ======================= MAPPING ======================= -->
+
+<h2 id="mapping">8. POM &amp; Services Mapping</h2>
+
+<h3>Page Objects Per Spec</h3>
+<table>
+  <thead><tr><th>Page Object</th><th>Key Method</th><th>Used In Specs</th></tr></thead>
+  <tbody>
+    <tr><td><code>NativeAppPage</code></td><td><code>verifyAfterActivation(pkg)</code></td><td><code>app-build.spec.ts</code></td></tr>
+    <tr><td><code>ExpoGoAppPage</code></td><td><code>verifyAppRunning(timeout)</code></td><td><code>preview-cli.spec.ts</code>, <code>maven-expo.spec.ts</code></td></tr>
+    <tr><td><code>WebPreviewPage</code></td><td><code>openAndVerify(url, timeout)</code></td><td><code>preview-cli.spec.ts</code></td></tr>
+  </tbody>
+</table>
+
+<h3>Services Per Spec</h3>
+<table>
+  <thead><tr><th>Service</th><th>Key Methods</th><th>Used In Specs</th></tr></thead>
+  <tbody>
+    <tr><td><code>AuthService</code></td><td><code>login()</code>, <code>getPreviewUrl()</code></td><td><code>preview-cli.spec.ts</code></td></tr>
+    <tr><td><code>ProjectService</code></td><td><code>downloadAndExtract()</code></td><td><code>maven-expo.spec.ts</code></td></tr>
+    <tr><td><code>MavenService</code></td><td><code>cleanInstall()</code>, <code>buildRnZip()</code>, <code>extractAndPrepareProject()</code></td><td><code>maven-expo.spec.ts</code></td></tr>
+    <tr><td><code>AppiumService</code></td><td><code>start()</code>, <code>stop()</code></td><td><code>preview-cli.spec.ts</code>, <code>maven-expo.spec.ts</code></td></tr>
+    <tr><td><code>DriverFactory</code></td><td><code>createAppiumSession()</code>, <code>createBrowserSession()</code>, <code>createBrowserStackSession()</code>, <code>takeScreenshot()</code></td><td>All specs with UI verification</td></tr>
+  </tbody>
+</table>
+
+<hr>
+
+<h2>Test Case Summary</h2>
+
+<table>
+  <thead><tr><th>Spec File</th><th style="width:60px"># Tests</th><th>Category</th></tr></thead>
+  <tbody>
+    <tr><td><code>appchef-version.spec.ts</code></td><td style="text-align:center"><strong>1</strong></td><td>Version Compatibility</td></tr>
+    <tr><td><code>preview-cli.spec.ts</code></td><td style="text-align:center"><strong>4</strong></td><td>Sync + Expo Go + Web Preview</td></tr>
+    <tr><td><code>app-build.spec.ts</code></td><td style="text-align:center"><strong>3</strong></td><td>APK/IPA Build + Device Verification</td></tr>
+    <tr><td><code>maven-expo.spec.ts</code></td><td style="text-align:center"><strong>10</strong></td><td>Maven + RN ZIP + Expo Go (Android + iOS)</td></tr>
+    <tr style="background:#deebff;"><td><strong>Total</strong></td><td style="text-align:center"><strong>18</strong></td><td></td></tr>
+  </tbody>
+</table>
+
+</body>
+</html>
