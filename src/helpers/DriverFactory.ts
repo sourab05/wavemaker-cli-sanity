@@ -27,11 +27,20 @@ export class DriverFactory {
   }
 
   static async createBrowserSession(browserName = 'chrome'): Promise<Browser> {
-    log.info(`Creating browser session (${browserName})...`);
+    const isHeadless = process.env.HEADLESS === 'true';
+    log.info(`Creating browser session (${browserName}, headless: ${isHeadless})...`);
+
+    const capabilities: Record<string, any> = { browserName };
+    if (isHeadless && browserName === 'chrome') {
+      capabilities['goog:chromeOptions'] = {
+        args: ['--headless=new', '--no-sandbox', '--disable-gpu', '--window-size=1920,1080'],
+      };
+    }
+
     try {
       const client = await remote({
         logLevel: 'error',
-        capabilities: { browserName },
+        capabilities,
       });
       log.success('Browser session created');
       return client;

@@ -1,3 +1,6 @@
+import * as fs from 'fs';
+import * as path from 'path';
+
 export type PackageManagerType = 'npm' | 'yarn';
 
 /**
@@ -16,11 +19,11 @@ export function getPackageManagers(): PackageManagerType[] {
  *
  * npm link flow:
  *   CLI repo:        npm install → npm link --force
- *   Automation repo: npm link @wavemaker/wm-reactnative-cli
+ *   Automation repo: npm link @wavemaker-ai/wm-reactnative-cli
  *
  * yarn link flow:
  *   CLI repo:        yarn install → yarn link
- *   Automation repo: yarn link @wavemaker/wm-reactnative-cli
+ *   Automation repo: yarn link @wavemaker-ai/wm-reactnative-cli
  */
 export class PackageManagerCommands {
   readonly type: PackageManagerType;
@@ -38,7 +41,7 @@ export class PackageManagerCommands {
     if (this.type === 'yarn') {
       return `yarn wm-reactnative ${args}`;
     }
-    return `npx @wavemaker/wm-reactnative-cli ${args}`;
+    return `npx @wavemaker-ai/wm-reactnative-cli ${args}`;
   }
 
   /** Install dependencies in a project directory. */
@@ -56,7 +59,31 @@ export class PackageManagerCommands {
     if (this.type === 'yarn') {
       return `yarn wm-reactnative ${args}`;
     }
-    return `wm-reactnative ${args}`;
+    return `npx wm-reactnative ${args}`;
+  }
+
+  /**
+   * Remove the other package manager's lock file and node_modules from a project
+   * directory to avoid mixed lock file warnings and stale .bin entries.
+   * yarn → removes package-lock.json
+   * npm  → removes yarn.lock
+   * If the opposite lock file existed, also removes node_modules for a clean install.
+   */
+  cleanForInstall(projectDir: string): string[] {
+    const removed: string[] = [];
+    const staleLock = this.type === 'yarn' ? 'package-lock.json' : 'yarn.lock';
+    const lockPath = path.join(projectDir, staleLock);
+    if (fs.existsSync(lockPath)) {
+      fs.unlinkSync(lockPath);
+      removed.push(staleLock);
+
+      const nmPath = path.join(projectDir, 'node_modules');
+      if (fs.existsSync(nmPath)) {
+        fs.rmSync(nmPath, { recursive: true, force: true });
+        removed.push('node_modules');
+      }
+    }
+    return removed;
   }
 
   /** Register a local package as a global link (run from inside the package directory). */

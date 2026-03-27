@@ -19,13 +19,14 @@ import { getPackageManagers, PackageManagerCommands } from '../../src/utils/pack
 dotenv.config();
 
 const packageManagers = getPackageManagers();
+const isRunLocal = process.env.RUN_LOCAL !== 'false';
 
 packageManagers.forEach((pm) => {
   const cmd = new PackageManagerCommands(pm);
   const log = createLogger(`PreviewCLISpec[${cmd.label}]`);
 
   describe(`[${cmd.label}] WM CLI Sync Command and Web Preview`, function () {
-    this.timeout(20 * 60 * 1000);
+    this.timeout(40 * 60 * 1000);
 
     let config: ReturnType<typeof getPreviewCLIConfig>;
     let authService: AuthService;
@@ -45,20 +46,28 @@ packageManagers.forEach((pm) => {
       const studioUrl = process.env.STUDIO_URL || 'https://stage-studio.wavemakeronline.com';
       authService = new AuthService(studioUrl);
 
-      log.step(1, 3, 'Ensuring Android emulator is running...');
-      emulatorService = new EmulatorService();
-      await emulatorService.ensureRunning();
+      const totalSteps = isRunLocal ? 3 : 2;
+      let step = 1;
 
-      log.step(2, 3, 'Authenticating with WaveMaker Studio...');
+      if (isRunLocal) {
+        log.step(step++, totalSteps, 'Ensuring Android emulator is running...');
+        emulatorService = new EmulatorService();
+        await emulatorService.ensureRunning();
+      } else {
+        log.info('CI mode (RUN_LOCAL=false): skipping emulator setup');
+      }
+
+      log.step(step++, totalSteps, 'Authenticating with WaveMaker Studio...');
       authCookie = await authService.login(config.auth.username, config.auth.password);
       cookieValue = authService.extractCookieValue(authCookie);
 
-      log.step(3, 3, 'Fetching preview URL...');
+      log.step(step++, totalSteps, 'Fetching preview URL...');
       previewUrl = await authService.getPreviewUrl(config.projectId, authCookie);
 
       log.info(`Project ID: ${config.projectId}`);
       log.info(`Preview URL: ${previewUrl}`);
       log.info(`Package Manager: ${cmd.label}`);
+      log.info(`Run Local: ${isRunLocal}`);
     });
 
     it('should run sync command and capture the Expo project path', async function () {
@@ -102,6 +111,11 @@ packageManagers.forEach((pm) => {
     });
 
     it('should start the project and verify the app in Expo Go on Android', async function () {
+      if (!isRunLocal) {
+        log.info('Skipping Expo Go test: requires local emulator (RUN_LOCAL=false)');
+        this.skip();
+      }
+
       if (!generatedProjectPath) {
         log.warn('Skipping: no generated project path from sync');
         this.skip();

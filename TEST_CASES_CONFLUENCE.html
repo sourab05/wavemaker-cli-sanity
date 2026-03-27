@@ -155,7 +155,7 @@ wavemaker-cli-sanity/
   <tr><td>Services</td><td>None (direct HTTP)</td></tr>
 </table>
 
-<p><strong>Purpose:</strong> Ensures the latest <code>wm-reactnative-cli</code> version on GitHub is compatible with the version range declared in the AppChef build agent.</p>
+<p><strong>Purpose:</strong> Ensures the latest <code>wm-reactnative</code> CLI version on GitHub is compatible with the version range declared in the AppChef build agent.</p>
 
 <table>
   <thead>
@@ -216,7 +216,7 @@ wavemaker-cli-sanity/
       <td>1</td>
       <td><strong>should run sync command and capture the Expo project path</strong></td>
       <td>
-        Executes <code>wm-reactnative-cli sync "&lt;previewUrl&gt;"</code>.<br>
+        Executes <code>wm-reactnative sync "&lt;previewUrl&gt;"</code>.<br>
         Monitors stdout with regex to capture the generated project path.<br>
         Auto-handles the interactive <code>token:</code> prompt by writing the cookie value to stdin (with ANSI code stripping for reliable detection).
       </td>
@@ -237,7 +237,7 @@ wavemaker-cli-sanity/
       <td>3</td>
       <td><strong>should run Expo web-preview and generate the Expo Web App</strong></td>
       <td>
-        <strong>Step 1:</strong> Runs <code>wm-reactnative-cli run web-preview "&lt;previewUrl&gt;"</code>; waits for "Project transpiled successfully".<br>
+        <strong>Step 1:</strong> Runs <code>wm-reactnative run web-preview "&lt;previewUrl&gt;"</code>; waits for "Project transpiled successfully".<br>
         <strong>Step 2:</strong> Launches Chrome via <code>DriverFactory.createBrowserSession()</code>.<br>
         <strong>Step 3:</strong> Uses <code>WebPreviewPage</code> POM to navigate and verify the navbar XPath.
       </td>
@@ -247,7 +247,7 @@ wavemaker-cli-sanity/
       <td>4</td>
       <td><strong>should run Esbuild web-preview and generate the Esbuild Web App</strong></td>
       <td>
-        Runs <code>wm-reactnative-cli run web-preview "&lt;previewUrl&gt;" --esbuild</code>.<br>
+        Runs <code>wm-reactnative run web-preview "&lt;previewUrl&gt;" --esbuild</code>.<br>
         Waits for the "Project transpiled successfully" success message.
       </td>
       <td>CLI exits with the success message in stdout.</td>

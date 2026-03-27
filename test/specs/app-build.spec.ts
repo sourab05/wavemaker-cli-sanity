@@ -17,6 +17,7 @@ import { AppiumService } from '../../src/services/AppiumService';
 dotenv.config();
 
 const packageManagers = getPackageManagers();
+const isRunLocal = process.env.RUN_LOCAL !== 'false';
 
 packageManagers.forEach((pm) => {
   const cmd = new PackageManagerCommands(pm);
@@ -35,16 +36,24 @@ packageManagers.forEach((pm) => {
       log.info(`Project path: ${config.projectPath}`);
       log.info(`Build artifacts: ${config.buildArtifactsDir}`);
       log.info(`Package Manager: ${cmd.label}`);
+      log.info(`Run Local: ${isRunLocal}`);
 
-      log.step(1, 4, 'Ensuring Android emulator is running...');
-      emulatorService = new EmulatorService(config.androidEmulatorName);
-      await emulatorService.ensureRunning();
+      let step = 1;
+      const totalSteps = isRunLocal ? 6 : 4;
 
-      log.step(2, 4, 'Starting Appium server...');
-      appiumService = new AppiumService();
-      await appiumService.start();
+      if (isRunLocal) {
+        log.step(step++, totalSteps, 'Ensuring Android emulator is running...');
+        emulatorService = new EmulatorService(config.androidEmulatorName);
+        await emulatorService.ensureRunning();
 
-      log.step(3, 5, 'Cleaning build artifacts directory...');
+        log.step(step++, totalSteps, 'Starting Appium server...');
+        appiumService = new AppiumService();
+        await appiumService.start();
+      } else {
+        log.info('CI mode (RUN_LOCAL=false): skipping emulator/Appium setup, will use BrowserStack');
+      }
+
+      log.step(step++, totalSteps, 'Cleaning build artifacts directory...');
       if (fs.existsSync(config.buildArtifactsDir)) {
         fs.rmSync(config.buildArtifactsDir, { recursive: true, force: true });
       }
@@ -63,8 +72,11 @@ packageManagers.forEach((pm) => {
         log.info('Created wm_rn_config.json');
       }
 
+      const removed = cmd.cleanForInstall(config.projectPath);
+      if (removed.length) log.info(`Cleaned for ${cmd.label}: removed ${removed.join(', ')}`);
+
       const installCmd = cmd.install();
-      log.step(5, 5, `Installing project dependencies (${installCmd})...`);
+      log.step(5, 6, `Installing project dependencies (${installCmd})...`);
       try {
         await runCommand(installCmd, {
           cwd: config.projectPath,
@@ -85,6 +97,27 @@ packageManagers.forEach((pm) => {
       } catch (error: any) {
         log.error(`Failed to install dependencies: ${error.message}`);
         throw error;
+      }
+
+      if (cmd.type === 'yarn') {
+        const cliBin = path.join(config.projectPath, 'node_modules', '.bin', 'wm-reactnative');
+        if (!fs.existsSync(cliBin)) {
+          log.step(6, 7, 'Installing CLI in project (yarn add --dev @wavemaker-ai/wm-reactnative-cli)...');
+          await runCommand('yarn add --dev @wavemaker-ai/wm-reactnative-cli', {
+            cwd: config.projectPath, timeout: config.installTimeout,
+          });
+          log.success('CLI installed (binary now in node_modules/.bin)');
+
+          try {
+            log.step(7, 7, 'Overlaying with local linked version (yarn link @wavemaker-ai/wm-reactnative-cli)...');
+            await runCommand('yarn link @wavemaker-ai/wm-reactnative-cli', {
+              cwd: config.projectPath, timeout: 60000,
+            });
+            log.success('CLI overridden with locally linked branch');
+          } catch {
+            log.info('No local link registered, using npm registry version');
+          }
+        }
       }
     });
 
@@ -130,7 +163,7 @@ packageManagers.forEach((pm) => {
       }
     });
 
-    it('should install and verify the Android app on emulator', async function () {
+    it('should install and verify the Android app', async function () {
       if (!config.androidOutputFile) {
         log.warn('Skipping: APK not available (previous build may have failed)');
         this.skip();
@@ -143,45 +176,50 @@ packageManagers.forEach((pm) => {
       let client: Browser | undefined;
 
       try {
-        log.step(1, 3, 'Installing APK on emulator...');
-        try {
-          execSync(`adb install -r "${apkPath}"`, { stdio: 'inherit' });
-          log.success('APK installed');
-        } catch {
-          throw new Error(`Failed to install APK: ${apkPath}`);
+        if (isRunLocal) {
+          log.step(1, 3, 'Installing APK on emulator...');
+          try {
+            execSync(`adb install -r "${apkPath}"`, { stdio: 'inherit' });
+            log.success('APK installed');
+          } catch {
+            throw new Error(`Failed to install APK: ${apkPath}`);
+          }
+
+          log.step(2, 3, 'Creating local Appium session...');
+          const platformName = process.env.PLATFORM_NAME || 'android';
+          const deviceName = process.env.LOCAL_DEVICE_NAME || emulatorService.getConnectedDevices()[0] || 'emulator-5554';
+          const automationName = platformName === 'android' ? 'UiAutomator2' : 'XCUITest';
+
+          const capabilities: AppiumCapabilities = {
+            platformName,
+            'appium:deviceName': deviceName,
+            'appium:automationName': automationName,
+            'appium:app': apkPath,
+            'appium:autoGrantPermissions': true,
+            'appium:locationServicesEnabled': true,
+            'appium:locationServicesAuthorized': true,
+          };
+
+          if (process.env.LOCAL_PLATFORM_VERSION) {
+            capabilities['appium:platformVersion'] = process.env.LOCAL_PLATFORM_VERSION;
+          }
+          if (appPackage) capabilities['appium:appPackage'] = appPackage;
+          if (appActivity) capabilities['appium:appActivity'] = appActivity;
+
+          client = await DriverFactory.createAppiumSession(capabilities);
+
+          log.step(3, 3, 'Verifying app via accessibility ID...');
+          const nativeApp = new NativeAppPage(client, appVerificationId);
+          await nativeApp.verifyAfterActivation(appPackage);
+
+          log.success('Android app verified on emulator');
+        } else {
+          await verifyAndroidOnBrowserStack(config, apkPath, log);
         }
-
-        log.step(2, 3, 'Creating Appium session...');
-        const platformName = process.env.PLATFORM_NAME || 'android';
-        const deviceName = process.env.LOCAL_DEVICE_NAME || emulatorService.getConnectedDevices()[0] || 'emulator-5554';
-        const automationName = platformName === 'android' ? 'UiAutomator2' : 'XCUITest';
-
-        const capabilities: AppiumCapabilities = {
-          platformName,
-          'appium:deviceName': deviceName,
-          'appium:automationName': automationName,
-          'appium:app': apkPath,
-          'appium:autoGrantPermissions': true,
-          'appium:locationServicesEnabled': true,
-          'appium:locationServicesAuthorized': true,
-        };
-
-        if (process.env.LOCAL_PLATFORM_VERSION) {
-          capabilities['appium:platformVersion'] = process.env.LOCAL_PLATFORM_VERSION;
-        }
-        if (appPackage) capabilities['appium:appPackage'] = appPackage;
-        if (appActivity) capabilities['appium:appActivity'] = appActivity;
-
-        client = await DriverFactory.createAppiumSession(capabilities);
-
-        log.step(3, 3, 'Verifying app via accessibility ID...');
-        const nativeApp = new NativeAppPage(client, appVerificationId);
-        await nativeApp.verifyAfterActivation(appPackage);
-
-        log.success('Android app verified on emulator');
       } catch (error: any) {
-        log.error(`Emulator verification failed: ${error.message}`);
-        if (client) await DriverFactory.takeScreenshot(client, `android-emulator-failure-${pm}`);
+        const target = isRunLocal ? 'emulator' : 'BrowserStack';
+        log.error(`Android ${target} verification failed: ${error.message}`);
+        if (client) await DriverFactory.takeScreenshot(client, `android-${target}-failure-${pm}`);
         throw error;
       } finally {
         await DriverFactory.closeSession(client);
@@ -218,8 +256,7 @@ packageManagers.forEach((pm) => {
         await runCommand(buildCmd, {
           cwd: config.projectPath,
           timeout: config.buildTimeout,
-          expectedFile: config.iosOutputFile,
-          expectedFilePollInterval: 5000,
+          successMessage: 'ios BUILD SUCCEEDED',
           onData: (text, child) => {
             if (
               text.includes('Would you like to eject the expo project') ||
@@ -233,9 +270,15 @@ packageManagers.forEach((pm) => {
           },
         });
 
-        if (!fs.existsSync(config.iosOutputFile)) {
-          throw new Error('Build completed but IPA file was not found');
+        const iosOutputDir = path.join(config.buildArtifactsDir, 'output/ios');
+        if (!fs.existsSync(iosOutputDir)) {
+          throw new Error('iOS output directory not found after build');
         }
+        const ipaFiles = fs.readdirSync(iosOutputDir).filter((f) => f.endsWith('.ipa'));
+        if (ipaFiles.length === 0) {
+          throw new Error('Build completed but no IPA file was found');
+        }
+        config.iosOutputFile = path.join(iosOutputDir, ipaFiles[0]);
         log.success(`IPA built: ${config.iosOutputFile}`);
 
         if (process.env.RUN_LOCAL === 'false') {
@@ -248,14 +291,67 @@ packageManagers.forEach((pm) => {
     });
 
     after(function () {
-      if (appiumService?.isRunning()) {
-        appiumService.stop();
+      if (isRunLocal) {
+        if (appiumService?.isRunning()) {
+          appiumService.stop();
+        }
+        emulatorService?.shutdown();
       }
-      emulatorService?.shutdown();
       log.separator(`Build & Run Tests Complete (${cmd.label})`);
     });
   });
 });
+
+async function verifyAndroidOnBrowserStack(
+  config: ReturnType<typeof getAppConfig>,
+  apkPath: string,
+  log: ReturnType<typeof createLogger>
+): Promise<void> {
+  const username = process.env.BROWSERSTACK_USERNAME;
+  const accessKey = process.env.BROWSERSTACK_ACCESS_KEY;
+  if (!username || !accessKey) {
+    throw new Error('BROWSERSTACK_USERNAME or BROWSERSTACK_ACCESS_KEY not set');
+  }
+
+  const projectName = process.env.PROJECT_NAME || 'default_project';
+  const androidDeviceName = process.env.BS_ANDROID_DEVICE_NAME || 'Google Pixel 8';
+  const androidPlatformVersion = (process.env.BS_ANDROID_PLATFORM_VERSION || '14').trim();
+
+  const capabilities: AppiumCapabilities = {
+    platformName: 'Android',
+    'appium:deviceName': androidDeviceName,
+    'appium:platformVersion': androidPlatformVersion,
+    'appium:automationName': 'UiAutomator2',
+    'appium:app': apkPath,
+  };
+
+  const bstackOptions: BrowserStackOptions = {
+    projectName,
+    buildName: `Android_Build_${new Date().toISOString().slice(0, 10)}`,
+    deviceName: androidDeviceName,
+    platformVersion: androidPlatformVersion,
+    appiumVersion: '2.0.0',
+  };
+
+  let client: Browser | undefined;
+  try {
+    log.info('Verifying Android app on BrowserStack...');
+    client = await DriverFactory.createBrowserStackSession(capabilities, bstackOptions, {
+      username,
+      accessKey,
+    });
+
+    const nativeApp = new NativeAppPage(client, config.appVerificationId);
+    await nativeApp.verifyAppLaunched();
+    log.success('BrowserStack Android verification passed');
+  } catch (error: any) {
+    log.error(`BrowserStack Android verification failed: ${error.message}`);
+    if (client) await DriverFactory.takeScreenshot(client, 'browserstack-android-failure');
+    throw error;
+  } finally {
+    await DriverFactory.closeSession(client);
+  }
+}
 
 async function verifyOnBrowserStack(config: ReturnType<typeof getAppConfig>, log: ReturnType<typeof createLogger>): Promise<void> {
   const configJsonPath = path.resolve(__dirname, '../../config/config.json');

@@ -77,6 +77,7 @@ git reset --hard "origin/$BRANCH_NAME"
 
 link_with_npm() {
   echo "--- [NPM] Installing CLI dependencies ---"
+  rm -f yarn.lock
   npm install
   echo "--- [NPM] Creating global link ---"
   npm link --force
@@ -84,6 +85,7 @@ link_with_npm() {
 
 link_with_yarn() {
   echo "--- [YARN] Installing CLI dependencies ---"
+  rm -f package-lock.json
   yarn install
   echo "--- [YARN] Registering yarn link ---"
   yarn link
@@ -142,7 +144,21 @@ case "$PKG_MANAGER" in
     ;;
 esac
 
+# Verify the CLI resolves correctly from the automation project
+echo "--- Verifying CLI version in automation project ---"
+LINKED_VERSION=$(npx wm-reactnative --version 2>/dev/null)
+echo "CLI version in automation project: $LINKED_VERSION"
+echo "Expected version: $EXPECTED_CLI_VERSION"
+
+if [ "$LINKED_VERSION" != "$EXPECTED_CLI_VERSION" ]; then
+  echo "Warning: CLI version in automation project ($LINKED_VERSION) does not match expected ($EXPECTED_CLI_VERSION)."
+  echo "The link may not have been consumed correctly."
+fi
+
 echo "--- Running automation tests (PACKAGE_MANAGER=$PKG_MANAGER) ---"
+
+# Clean previous allure results so reports only contain current run
+rm -rf allure-results allure-report
 
 # Temporarily disable 'exit on error' to ensure reporting always runs
 set +e
@@ -170,11 +186,11 @@ echo "CLI_Version=$ACTIVE_CLI_VERSION" > allure-results/environment.properties
 echo "Branch=$BRANCH_NAME" >> allure-results/environment.properties
 echo "Package_Manager=$PKG_MANAGER" >> allure-results/environment.properties
 
-allure generate allure-results --clean -o allure-report
+allure generate allure-results --clean --single-file -o allure-report
 
-echo "--- Allure report generated in: $AUTOMATION_REPO_PATH/allure-report ---"
+echo "--- Single-file Allure report generated: $AUTOMATION_REPO_PATH/allure-report/index.html ---"
 
-# --- Upload Allure report to S3 ---
+# --- Upload single HTML report to S3 as cli.html ---
 if [ -f "$AUTOMATION_REPO_PATH/.env" ]; then
   export $(grep -v '^#' "$AUTOMATION_REPO_PATH/.env" | grep -E '^(S3_|AWS_)' | xargs)
 fi
@@ -182,25 +198,26 @@ fi
 S3_BUCKET="${S3_REPORT_BUCKET:-}"
 S3_REGION="${AWS_REGION:-us-west-2}"
 
-if [ -n "$S3_BUCKET" ] && [ -d "allure-report" ]; then
+if [ -n "$S3_BUCKET" ] && [ -f "allure-report/index.html" ]; then
   S3_VERSION="${S3_REPORT_VERSION:-$ACTIVE_CLI_VERSION}"
-  S3_PATH="releases/${S3_VERSION}/Cli/"
-  S3_DEST="s3://${S3_BUCKET}/${S3_PATH}"
+  S3_PATH="react_native/releases/${S3_VERSION}/Cli/"
+  S3_DEST="s3://${S3_BUCKET}/${S3_PATH}cli.html"
 
-  echo "--- Uploading Allure report to S3 ---"
+  echo "--- Uploading report to S3 as cli.html ---"
   echo "S3 destination: ${S3_DEST}"
 
-  aws s3 sync allure-report/ "$S3_DEST" \
+  aws s3 cp allure-report/index.html "$S3_DEST" \
     --region "$S3_REGION" \
-    --acl public-read
+    --acl public-read \
+    --content-type "text/html"
 
-  REPORT_URL="https://${S3_BUCKET}.s3.${S3_REGION}.amazonaws.com/${S3_PATH}index.html"
+  REPORT_URL="https://${S3_BUCKET}.s3.${S3_REGION}.amazonaws.com/${S3_PATH}cli.html"
   echo "--- Report uploaded: ${REPORT_URL} ---"
 else
   if [ -z "$S3_BUCKET" ]; then
     echo "--- Skipping S3 upload (S3_REPORT_BUCKET not set) ---"
   else
-    echo "--- Skipping S3 upload (allure-report directory not found) ---"
+    echo "--- Skipping S3 upload (allure-report/index.html not found) ---"
   fi
 fi
 

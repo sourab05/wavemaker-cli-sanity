@@ -60,7 +60,7 @@ h2. 2. Spec 1 — AppChef CLI Version Compatibility
 |Page Objects|None|
 |Services|None (direct HTTP)|
 
-*Purpose:* Ensures the latest {{wm-reactnative-cli}} version on GitHub is compatible with the version range declared in the AppChef build agent.
+*Purpose:* Ensures the latest {{wm-reactnative}} CLI version on GitHub is compatible with the version range declared in the AppChef build agent.
 
 ||#||Test Case||Approach||Assertions||
 | {status:colour=Grey|title=before} | *Setup* |Fetches {{package.json}} from both GitHub repos in parallel ({{Promise.all}}). Extracts the CLI version and AppChef's declared dependency range. Validates the CLI version is valid semver. Fails fast if either fetch fails or the dependency entry is missing.|— |
@@ -82,10 +82,10 @@ h2. 3. Spec 2 — WM CLI Sync & Web Preview
 
 ||#||Test Case||Approach||Verification||
 | {status:colour=Grey|title=before} | *Authentication & Preview URL* | *Step 1:* Loads {{PreviewCLIConfig}} from {{.env}}. \\ *Step 2:* Creates {{AuthService}} and authenticates against WaveMaker Studio ({{POST /login/authenticate}}) to obtain {{auth_cookie}}. \\ *Step 3:* Calls the Studio deployment API to get the live preview URL.|Auth cookie obtained. Preview URL is valid HTTPS.|
-|1| *should run sync command and capture the Expo project path* |Executes {{wm-reactnative-cli sync "<previewUrl>"}}. \\ Monitors stdout with regex to capture the generated project path. \\ Auto-handles the interactive {{token:}} prompt by writing the cookie value to stdin (with ANSI code stripping for reliable detection).|Generated Expo project directory exists on disk.|
+|1| *should run sync command and capture the Expo project path* |Executes {{wm-reactnative sync "<previewUrl>"}}. \\ Monitors stdout with regex to capture the generated project path. \\ Auto-handles the interactive {{token:}} prompt by writing the cookie value to stdin (with ANSI code stripping for reliable detection).|Generated Expo project directory exists on disk.|
 |2| *should start the project and verify the app in Expo Go on Android* | *Step 1:* Starts Appium server via {{AppiumService}}. \\ *Step 2:* Creates Appium session targeting Expo Go ({{host.exp.exponent}}) via {{DriverFactory}}. \\ *Step 3:* Runs {{npm run android}} in the synced project; waits for Metro to report "Waiting on localhost:8081". \\ *Step 4:* Uses {{ExpoGoAppPage}} POM to verify accessibility ID is displayed.| {{~mobile_navbar1_title}} visible within 60s. Screenshot captured on failure. *Skips* if test 1 failed.|
-|3| *should run Expo web-preview and generate the Expo Web App* | *Step 1:* Runs {{wm-reactnative-cli run web-preview "<previewUrl>"}}; waits for "Project transpiled successfully". \\ *Step 2:* Launches Chrome via {{DriverFactory.createBrowserSession()}}. \\ *Step 3:* Uses {{WebPreviewPage}} POM to navigate and verify the navbar XPath.|XPath element visible within 30s. Screenshot on failure.|
-|4| *should run Esbuild web-preview and generate the Esbuild Web App* |Runs {{wm-reactnative-cli run web-preview "<previewUrl>" \-\-esbuild}}. \\ Waits for the "Project transpiled successfully" success message.|CLI exits with the success message in stdout.|
+|3| *should run Expo web-preview and generate the Expo Web App* | *Step 1:* Runs {{wm-reactnative run web-preview "<previewUrl>"}}; waits for "Project transpiled successfully". \\ *Step 2:* Launches Chrome via {{DriverFactory.createBrowserSession()}}. \\ *Step 3:* Uses {{WebPreviewPage}} POM to navigate and verify the navbar XPath.|XPath element visible within 30s. Screenshot on failure.|
+|4| *should run Esbuild web-preview and generate the Esbuild Web App* |Runs {{wm-reactnative run web-preview "<previewUrl>" \-\-esbuild}}. \\ Waits for the "Project transpiled successfully" success message.|CLI exits with the success message in stdout.|
 | {status:colour=Grey|title=after} | *Cleanup* |Kills any leftover Metro process. Stops Appium server if still running.|— |
 
 ----

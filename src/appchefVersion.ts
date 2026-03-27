@@ -6,7 +6,7 @@ const CLI_PACKAGE_JSON_URL =
   'https://raw.githubusercontent.com/wavemaker/wm-reactnative-cli/main/package.json';
 const APPCHEF_PACKAGE_JSON_URL =
   'https://raw.githubusercontent.com/wavemaker/app-chef-build-agent/master/package.json';
-const CLI_PACKAGE_NAME = '@wavemaker/wm-reactnative-cli';
+const CLI_PACKAGE_NAME = '@wavemaker-ai/wm-reactnative-cli';
 
 describe('AppChef CLI Version Compatibility', function () {
   this.timeout(30 * 1000);

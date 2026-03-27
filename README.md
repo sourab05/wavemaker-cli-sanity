@@ -14,7 +14,7 @@ A standalone framework for testing WaveMaker React Native CLI functionality, inc
 
 - Node.js (v14 or higher)
 - npm or yarn
-- WaveMaker CLI (`@wavemaker/wm-reactnative-cli`)
+- WaveMaker CLI (`@wavemaker-ai/wm-reactnative-cli`)
 - Android SDK (for Android builds)
 - Xcode (for iOS builds, macOS only)
 - Appium (for mobile app verification)
@@ -209,7 +209,7 @@ To see more detailed output, the framework automatically logs command execution 
 ## Dependencies
 
 Main dependencies:
-- `@wavemaker/wm-reactnative-cli`: WaveMaker CLI tool
+- `@wavemaker-ai/wm-reactnative-cli`: WaveMaker CLI tool
 - `mocha`: Test framework
 - `webdriverio`: Appium client
 - `axios`: HTTP client for API calls
