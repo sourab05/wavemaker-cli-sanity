@@ -8,8 +8,11 @@ import { remote, Browser } from 'webdriverio';
 import dotenv from 'dotenv';
 import { getPreviewCLIConfig, getPreviewUrl } from './config';
 import { runCommand } from './utils/run-command';
+import { getCliVariant } from './utils/cli-variant';
 
 dotenv.config();
+
+const cliVariant = getCliVariant();
 
 describe('WM CLI Sync Command and RUN Web Preview Command', function () {
   this.timeout(20 * 60 * 1000); // 20 minutes total timeout
@@ -41,7 +44,7 @@ describe('WM CLI Sync Command and RUN Web Preview Command', function () {
     if (fs.existsSync(projectRootFolder)) {
       fs.rmSync(projectRootFolder, { recursive: true, force: true });
     }
-    const syncCmd = `npx @wavemaker-ai/wm-reactnative-cli sync "${previewUrl}"`;
+    const syncCmd = `npx ${cliVariant.packageName} sync "${previewUrl}"`;
     const cookieValue = authCookie.split('=')[1].trim();
     const pathRegex = /Sync finished generated expo project at\s*:\s*(.*)/;
     try {
@@ -157,7 +160,7 @@ describe('WM CLI Sync Command and RUN Web Preview Command', function () {
 
   it('should run Expo web-preview and generate the Expo Web App', async function () {
     const cookieValue = authCookie.split('=')[1].trim();
-    const runCmd = `npx @wavemaker-ai/wm-reactnative-cli run web-preview "${previewUrl}"`;
+    const runCmd = `npx ${cliVariant.packageName} run web-preview "${previewUrl}"`;
     await runCommand(runCmd, {
       timeout: config.syncTimeout,
       successMessage: '✔ Project transpiled successfully',
@@ -186,7 +189,7 @@ describe('WM CLI Sync Command and RUN Web Preview Command', function () {
 
   it('should run Esbuild web-preview and generate the Esbuild Web App', async function () {
     const cookieValue = authCookie.split('=')[1].trim();
-    const runCmd = `npx @wavemaker-ai/wm-reactnative-cli run web-preview "${previewUrl}" --esbuild`;
+    const runCmd = `npx ${cliVariant.packageName} run web-preview "${previewUrl}" --esbuild`;
     await runCommand(runCmd, {
       timeout: config.syncTimeout,
       successMessage: '✔ Project transpiled successfully',

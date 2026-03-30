@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { getCliVariant } from './cli-variant';
 
 export type PackageManagerType = 'npm' | 'yarn';
 
@@ -14,16 +15,19 @@ export function getPackageManagers(): PackageManagerType[] {
   return ['npm'];
 }
 
+const variant = getCliVariant();
+
 /**
  * Provides the correct shell commands for a given package manager.
+ * CLI variant (classic/ai) is auto-detected from STUDIO_URL.
  *
  * npm link flow:
  *   CLI repo:        npm install → npm link --force
- *   Automation repo: npm link @wavemaker-ai/wm-reactnative-cli
+ *   Automation repo: npm link <packageName>
  *
  * yarn link flow:
  *   CLI repo:        yarn install → yarn link
- *   Automation repo: yarn link @wavemaker-ai/wm-reactnative-cli
+ *   Automation repo: yarn link <packageName>
  */
 export class PackageManagerCommands {
   readonly type: PackageManagerType;
@@ -36,12 +40,12 @@ export class PackageManagerCommands {
     return this.type.toUpperCase();
   }
 
-  /** Run the wm-reactnative CLI with the given arguments. */
+  /** Run the CLI with the given arguments. Resolves to correct binary based on STUDIO_URL. */
   cli(args: string): string {
     if (this.type === 'yarn') {
-      return `yarn wm-reactnative ${args}`;
+      return `yarn ${variant.binaryName} ${args}`;
     }
-    return `npx @wavemaker-ai/wm-reactnative-cli ${args}`;
+    return `npx ${variant.packageName} ${args}`;
   }
 
   /** Install dependencies in a project directory. */
@@ -57,9 +61,9 @@ export class PackageManagerCommands {
   /** Direct CLI binary invocation (build commands). */
   cliBinary(args: string): string {
     if (this.type === 'yarn') {
-      return `yarn wm-reactnative ${args}`;
+      return `yarn ${variant.binaryName} ${args}`;
     }
-    return `npx wm-reactnative ${args}`;
+    return `npx ${variant.binaryName} ${args}`;
   }
 
   /**

@@ -52,6 +52,31 @@ pipeline {
             }
         }
 
+        stage('Detect CLI Variant') {
+            steps {
+                script {
+                    // Auto-detect CLI variant from STUDIO_URL
+                    def studioUrl = env.STUDIO_URL ?: ''
+                    if (studioUrl.contains('platform.wavemaker.ai')) {
+                        env.CLI_PLATFORM = 'ai'
+                        env.CLI_PKG_NAME = '@wavemaker-ai/wm-reactnative-cli'
+                        env.CLI_BINARY = 'wm-reactnative-ai'
+                    } else {
+                        env.CLI_PLATFORM = 'classic'
+                        env.CLI_PKG_NAME = '@wavemaker/wm-reactnative-cli'
+                        env.CLI_BINARY = 'wm-reactnative'
+                    }
+                }
+                sh """
+                    echo "--- CLI Variant Detected ---"
+                    echo "  Platform:  ${env.CLI_PLATFORM}"
+                    echo "  Package:   ${env.CLI_PKG_NAME}"
+                    echo "  Binary:    ${env.CLI_BINARY}"
+                    echo "  Studio:    ${env.STUDIO_URL}"
+                """
+            }
+        }
+
         stage('Setup CLI') {
             steps {
                 sh """
@@ -85,7 +110,7 @@ pipeline {
 
                     echo "--- Verifying CLI version ---"
                     EXPECTED=\$(node -e "console.log(require('./package.json').version)")
-                    ACTUAL=\$(wm-reactnative --version)
+                    ACTUAL=\$(${env.CLI_BINARY} --version)
                     echo "Expected: \$EXPECTED | Active: \$ACTUAL"
 
                     if [ "\$ACTUAL" != "\$EXPECTED" ]; then
@@ -100,8 +125,8 @@ pipeline {
         stage('Install Dependencies') {
             steps {
                 sh """
-                    echo "--- Linking CLI in automation project ---"
-                    npm link @wavemaker/wm-reactnative-cli
+                    echo "--- Linking CLI in automation project (${env.CLI_PKG_NAME}) ---"
+                    npm link ${env.CLI_PKG_NAME}
 
                     echo "--- Installing automation dependencies ---"
                     npm install
@@ -141,9 +166,11 @@ pipeline {
                         sh """
                             rm -rf allure-results allure-report
 
-                            CLI_VERSION=\$(wm-reactnative --version 2>/dev/null || echo 'unknown')
+                            CLI_VERSION=\$(${env.CLI_BINARY} --version 2>/dev/null || echo 'unknown')
                             mkdir -p allure-results
                             echo "CLI_Version=\$CLI_VERSION" > allure-results/environment.properties
+                            echo "CLI_Platform=${env.CLI_PLATFORM}" >> allure-results/environment.properties
+                            echo "CLI_Binary=${env.CLI_BINARY}" >> allure-results/environment.properties
                             echo "Branch=${params.CLI_BRANCH}" >> allure-results/environment.properties
                             echo "Package_Manager=${params.PKG_MANAGER}" >> allure-results/environment.properties
                             echo "Run_Target=${params.RUN_TARGET}" >> allure-results/environment.properties
@@ -195,7 +222,7 @@ pipeline {
             steps {
                 sh '''
                     if [ -f "allure-report/index.html" ]; then
-                        CLI_VERSION=$(wm-reactnative --version 2>/dev/null || echo 'unknown')
+                        CLI_VERSION=$(${env.CLI_BINARY} --version 2>/dev/null || echo 'unknown')
                         S3_VERSION="${S3_REPORT_VERSION:-$CLI_VERSION}"
                         S3_PATH="react_native/releases/${S3_VERSION}/Cli/"
                         S3_DEST="s3://${S3_REPORT_BUCKET}/${S3_PATH}cli.html"

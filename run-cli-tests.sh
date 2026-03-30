@@ -3,8 +3,29 @@
 # Exit immediately if a command exits with a non-zero status.
 set -e
 
-# --- Configuration ---
-CLI_REPO_URL="https://github.com/wavemaker/wm-reactnative-cli.git"
+# --- CLI variant detection from STUDIO_URL ---
+# classic: stage-studio.wavemakeronline.com, dev-studio, etc.
+# ai:      stage-platform.wavemaker.ai, platform.wavemaker.ai
+detect_cli_variant() {
+  local url="${STUDIO_URL:-}"
+  if echo "$url" | grep -qi "platform.wavemaker.ai"; then
+    CLI_PLATFORM="ai"
+    CLI_REPO_URL="https://github.com/wavemaker/wm-reactnative-cli.git"
+    CLI_PKG_NAME="@wavemaker-ai/wm-reactnative-cli"
+    CLI_BINARY="wm-reactnative-ai"
+  else
+    CLI_PLATFORM="classic"
+    CLI_REPO_URL="https://github.com/wavemaker/wm-reactnative-cli.git"
+    CLI_PKG_NAME="@wavemaker/wm-reactnative-cli"
+    CLI_BINARY="wm-reactnative"
+  fi
+}
+
+detect_cli_variant
+
+echo "--- CLI Platform: $CLI_PLATFORM ---"
+echo "--- CLI Package:  $CLI_PKG_NAME ---"
+echo "--- CLI Binary:   $CLI_BINARY ---"
 
 # Check if the WORKSPACE environment variable is set (standard in Jenkins)
 if [ -n "$WORKSPACE" ]; then
@@ -69,11 +90,11 @@ git reset --hard "origin/$BRANCH_NAME"
 #
 # npm link flow:
 #   CLI repo:        npm install  →  npm link --force   (global symlink)
-#   Automation repo: npm link @wavemaker/wm-reactnative-cli
+#   Automation repo: npm link $CLI_PKG_NAME
 #
 # yarn link flow:
 #   CLI repo:        yarn install →  yarn link          (register in yarn registry)
-#   Automation repo: yarn link @wavemaker/wm-reactnative-cli
+#   Automation repo: yarn link $CLI_PKG_NAME
 
 link_with_npm() {
   echo "--- [NPM] Installing CLI dependencies ---"
@@ -108,11 +129,11 @@ esac
 
 # Verify the linked CLI version
 echo "--- Verifying linked CLI version ---"
-ACTIVE_CLI_VERSION=$(wm-reactnative --version)
+ACTIVE_CLI_VERSION=$($CLI_BINARY --version)
 EXPECTED_CLI_VERSION=$(CLI_REPO_PATH="$CLI_REPO_PATH" node -e "const p=require('path'); console.log(require(p.join(process.env.CLI_REPO_PATH,'package.json')).version)")
 
 echo "Expected version (from CLI repo package.json): $EXPECTED_CLI_VERSION"
-echo "Active version (from 'wm-reactnative --version'): $ACTIVE_CLI_VERSION"
+echo "Active version (from '$CLI_BINARY --version'): $ACTIVE_CLI_VERSION"
 
 if [ "$ACTIVE_CLI_VERSION" != "$EXPECTED_CLI_VERSION" ]; then
   echo "Error: Version Mismatch!"
@@ -121,7 +142,7 @@ if [ "$ACTIVE_CLI_VERSION" != "$EXPECTED_CLI_VERSION" ]; then
   exit 1
 fi
 
-echo "--- Successfully linked and verified wm-reactnative-cli version: $ACTIVE_CLI_VERSION ---"
+echo "--- Successfully linked and verified $CLI_BINARY version: $ACTIVE_CLI_VERSION ---"
 
 # --- Link CLI in the automation project ---
 cd "$AUTOMATION_REPO_PATH"
@@ -129,24 +150,24 @@ echo "--- Linking automation project to the local CLI ---"
 
 case "$PKG_MANAGER" in
   npm)
-    npm link @wavemaker/wm-reactnative-cli
-    echo "[NPM] linked @wavemaker/wm-reactnative-cli"
+    npm link "$CLI_PKG_NAME"
+    echo "[NPM] linked $CLI_PKG_NAME"
     ;;
   yarn)
-    yarn link @wavemaker/wm-reactnative-cli
-    echo "[YARN] linked @wavemaker/wm-reactnative-cli"
+    yarn link "$CLI_PKG_NAME"
+    echo "[YARN] linked $CLI_PKG_NAME"
     ;;
   both)
-    npm link @wavemaker/wm-reactnative-cli
-    echo "[NPM] linked @wavemaker/wm-reactnative-cli"
-    yarn link @wavemaker/wm-reactnative-cli
-    echo "[YARN] linked @wavemaker/wm-reactnative-cli"
+    npm link "$CLI_PKG_NAME"
+    echo "[NPM] linked $CLI_PKG_NAME"
+    yarn link "$CLI_PKG_NAME"
+    echo "[YARN] linked $CLI_PKG_NAME"
     ;;
 esac
 
 # Verify the CLI resolves correctly from the automation project
 echo "--- Verifying CLI version in automation project ---"
-LINKED_VERSION=$(npx wm-reactnative --version 2>/dev/null)
+LINKED_VERSION=$(npx $CLI_BINARY --version 2>/dev/null)
 echo "CLI version in automation project: $LINKED_VERSION"
 echo "Expected version: $EXPECTED_CLI_VERSION"
 
@@ -183,6 +204,8 @@ echo "--- Generating Allure report ---"
 
 mkdir -p allure-results
 echo "CLI_Version=$ACTIVE_CLI_VERSION" > allure-results/environment.properties
+echo "CLI_Platform=$CLI_PLATFORM" >> allure-results/environment.properties
+echo "CLI_Binary=$CLI_BINARY" >> allure-results/environment.properties
 echo "Branch=$BRANCH_NAME" >> allure-results/environment.properties
 echo "Package_Manager=$PKG_MANAGER" >> allure-results/environment.properties
 

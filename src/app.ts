@@ -7,7 +7,10 @@ import * as os from 'os';
 import { remote, Browser } from 'webdriverio';
 import { getAppConfig } from './config';
 import { runCommand } from './utils/run-command';
+import { getCliVariant } from './utils/cli-variant';
+
 const config = getAppConfig();
+const cliVariant = getCliVariant();
 
 // --- Test Suite ---
 
@@ -85,7 +88,7 @@ describe('React Native Project Build and Run', () => {
     this.timeout(config.buildTimeout);
     console.log('\n--- Starting APK Build Test ---');
 
-    const buildCmd = `wm-reactnative build android "${config.projectPath}" --dest="${config.buildArtifactsDir}" --auto-eject=true`;
+    const buildCmd = `${cliVariant.binaryName} build android "${config.projectPath}" --dest="${config.buildArtifactsDir}" --auto-eject=true`;
     console.log(`[Log] Build command: ${buildCmd}`);
 
     try {
@@ -229,7 +232,7 @@ describe('React Native Project Build and Run', () => {
     this.timeout(config.buildTimeout);
     console.log('\n--- Starting IPA Build Test ---');
 
-    const buildCmd = `wm-reactnative build ios "${config.projectPath}" --dest="${config.buildArtifactsDir}" --iCertificate="${hasP12Cert}" --iCertificatePassword="${hasPassword}" --iProvisioningFile="${hasProvProfile}" --auto-eject=true`;
+    const buildCmd = `${cliVariant.binaryName} build ios "${config.projectPath}" --dest="${config.buildArtifactsDir}" --iCertificate="${hasP12Cert}" --iCertificatePassword="${hasPassword}" --iProvisioningFile="${hasProvProfile}" --auto-eject=true`;
     console.log(`[Log] Build command: ${buildCmd}`);
 
     try {

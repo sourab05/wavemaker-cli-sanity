@@ -11,6 +11,7 @@ import { runCommand } from '../../src/utils/run-command';
 import { createLogger } from '../../src/utils/Logger';
 import { AppiumCapabilities, BrowserStackOptions } from '../../src/types';
 import { getPackageManagers, PackageManagerCommands } from '../../src/utils/package-manager';
+import { getCliVariant } from '../../src/utils/cli-variant';
 import { EmulatorService } from '../../src/services/EmulatorService';
 import { AppiumService } from '../../src/services/AppiumService';
 
@@ -18,6 +19,7 @@ dotenv.config();
 
 const packageManagers = getPackageManagers();
 const isRunLocal = process.env.RUN_LOCAL !== 'false';
+const variant = getCliVariant();
 
 packageManagers.forEach((pm) => {
   const cmd = new PackageManagerCommands(pm);
@@ -100,17 +102,17 @@ packageManagers.forEach((pm) => {
       }
 
       if (cmd.type === 'yarn') {
-        const cliBin = path.join(config.projectPath, 'node_modules', '.bin', 'wm-reactnative');
+        const cliBin = path.join(config.projectPath, 'node_modules', '.bin', variant.binaryName);
         if (!fs.existsSync(cliBin)) {
-          log.step(6, 7, 'Installing CLI in project (yarn add --dev @wavemaker-ai/wm-reactnative-cli)...');
-          await runCommand('yarn add --dev @wavemaker-ai/wm-reactnative-cli', {
+          log.step(6, 7, `Installing CLI in project (yarn add --dev ${variant.packageName})...`);
+          await runCommand(`yarn add --dev ${variant.packageName}`, {
             cwd: config.projectPath, timeout: config.installTimeout,
           });
           log.success('CLI installed (binary now in node_modules/.bin)');
 
           try {
-            log.step(7, 7, 'Overlaying with local linked version (yarn link @wavemaker-ai/wm-reactnative-cli)...');
-            await runCommand('yarn link @wavemaker-ai/wm-reactnative-cli', {
+            log.step(7, 7, `Overlaying with local linked version (yarn link ${variant.packageName})...`);
+            await runCommand(`yarn link ${variant.packageName}`, {
               cwd: config.projectPath, timeout: 60000,
             });
             log.success('CLI overridden with locally linked branch');

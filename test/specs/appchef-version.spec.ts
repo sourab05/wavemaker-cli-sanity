@@ -3,16 +3,18 @@ import semver from 'semver';
 import assert from 'assert';
 import dotenv from 'dotenv';
 import { createLogger } from '../../src/utils/Logger';
+import { getCliVariant } from '../../src/utils/cli-variant';
 
 dotenv.config();
 
 const log = createLogger('AppChefVersionSpec');
+const variant = getCliVariant();
 
 const CLI_PACKAGE_JSON_URL =
   'https://raw.githubusercontent.com/wavemaker/wm-reactnative-cli/main/package.json';
 const APPCHEF_PACKAGE_JSON_URL =
   'https://raw.githubusercontent.com/wavemaker/app-chef-build-agent/master/package.json';
-const CLI_PACKAGE_NAME = '@wavemaker-ai/wm-reactnative-cli';
+const CLI_PACKAGE_NAME = variant.packageName;
 
 describe('AppChef CLI Version Compatibility', function () {
   this.timeout(30 * 1000);

@@ -28,6 +28,7 @@
   "license": "MIT",
   "dependencies": {
     "@aws-sdk/client-s3": "^3.997.0",
+    "@wavemaker/wm-reactnative-cli": "latest",
     "@wavemaker-ai/wm-reactnative-cli": "latest",
     "adm-zip": "^0.5.16",
     "axios": "^1.7.7",
