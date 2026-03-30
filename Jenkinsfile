@@ -55,23 +55,30 @@ pipeline {
         stage('Detect CLI Variant') {
             steps {
                 script {
-                    // Auto-detect CLI variant from STUDIO_URL
                     def studioUrl = env.STUDIO_URL ?: ''
                     if (studioUrl.contains('platform.wavemaker.ai')) {
                         env.CLI_PLATFORM = 'ai'
                         env.CLI_PKG_NAME = '@wavemaker-ai/wm-reactnative-cli'
                         env.CLI_BINARY = 'wm-reactnative-ai'
+                        env.CLI_DEFAULT_BRANCH = 'wavemaker-ai'
                     } else {
                         env.CLI_PLATFORM = 'classic'
                         env.CLI_PKG_NAME = '@wavemaker/wm-reactnative-cli'
                         env.CLI_BINARY = 'wm-reactnative'
+                        env.CLI_DEFAULT_BRANCH = 'main'
                     }
+
+                    // Use variant default branch unless user explicitly changed CLI_BRANCH
+                    env.EFFECTIVE_BRANCH = (params.CLI_BRANCH == 'main')
+                        ? env.CLI_DEFAULT_BRANCH
+                        : params.CLI_BRANCH
                 }
                 sh """
                     echo "--- CLI Variant Detected ---"
                     echo "  Platform:  ${env.CLI_PLATFORM}"
                     echo "  Package:   ${env.CLI_PKG_NAME}"
                     echo "  Binary:    ${env.CLI_BINARY}"
+                    echo "  Branch:    ${env.EFFECTIVE_BRANCH}"
                     echo "  Studio:    ${env.STUDIO_URL}"
                 """
             }
@@ -80,7 +87,7 @@ pipeline {
         stage('Setup CLI') {
             steps {
                 sh """
-                    echo "--- Setting up CLI for branch: ${params.CLI_BRANCH} ---"
+                    echo "--- Setting up CLI for branch: ${env.EFFECTIVE_BRANCH} ---"
 
                     CLI_REPO_URL="https://github.com/wavemaker/wm-reactnative-cli.git"
                     CLI_REPO_PATH="\${WORKSPACE}/wm-reactnative-cli"
@@ -97,10 +104,8 @@ pipeline {
                     fi
 
                     cd "\$CLI_REPO_PATH"
-                    git checkout main
-                    git reset --hard origin/main
-                    git checkout "${params.CLI_BRANCH}"
-                    git reset --hard "origin/${params.CLI_BRANCH}"
+                    git checkout "${env.EFFECTIVE_BRANCH}"
+                    git reset --hard "origin/${env.EFFECTIVE_BRANCH}"
 
                     echo "--- Installing CLI dependencies ---"
                     npm install
@@ -171,7 +176,7 @@ pipeline {
                             echo "CLI_Version=\$CLI_VERSION" > allure-results/environment.properties
                             echo "CLI_Platform=${env.CLI_PLATFORM}" >> allure-results/environment.properties
                             echo "CLI_Binary=${env.CLI_BINARY}" >> allure-results/environment.properties
-                            echo "Branch=${params.CLI_BRANCH}" >> allure-results/environment.properties
+                            echo "Branch=${env.EFFECTIVE_BRANCH}" >> allure-results/environment.properties
                             echo "Package_Manager=${params.PKG_MANAGER}" >> allure-results/environment.properties
                             echo "Run_Target=${params.RUN_TARGET}" >> allure-results/environment.properties
 
@@ -245,13 +250,13 @@ pipeline {
 
     post {
         success {
-            echo "Pipeline completed successfully for CLI branch: ${params.CLI_BRANCH}"
+            echo "Pipeline completed successfully — ${env.CLI_PLATFORM} CLI, branch: ${env.EFFECTIVE_BRANCH}"
         }
         failure {
-            echo "Pipeline failed for CLI branch: ${params.CLI_BRANCH} — check archived reports above."
+            echo "Pipeline failed — ${env.CLI_PLATFORM} CLI, branch: ${env.EFFECTIVE_BRANCH} — check archived reports."
         }
         always {
-            echo "Test run complete. Target: ${params.RUN_TARGET}, Package Manager: ${params.PKG_MANAGER}"
+            echo "Run complete. Platform: ${env.CLI_PLATFORM}, Branch: ${env.EFFECTIVE_BRANCH}, Target: ${params.RUN_TARGET}, PM: ${params.PKG_MANAGER}"
         }
     }
 }

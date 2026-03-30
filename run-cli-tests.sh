@@ -81,8 +81,6 @@ else
 fi
 
 # Checkout the specified branch
-git checkout main
-git reset --hard origin/main
 git checkout "$BRANCH_NAME"
 git reset --hard "origin/$BRANCH_NAME"
 
