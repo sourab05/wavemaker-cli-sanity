@@ -49,6 +49,9 @@ tmp/
 temp/
 *.tmp
 
+# Google OAuth session cache (local only)
+.test-cache/
+
 # Mobile provisioning / signing (sensitive)
 *.mobileprovision
 *.p12

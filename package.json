@@ -37,6 +37,7 @@
     "dotenv": "^16.0.3",
     "ora": "^5.4.1",
     "qs": "^6.11.2",
+    "otpauth": "^9.3.6",
     "semver": "^7.7.4"
   },
   "devDependencies": {

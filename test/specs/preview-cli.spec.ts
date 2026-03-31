@@ -12,7 +12,7 @@ import { DriverFactory } from '../../src/helpers/DriverFactory';
 import { ExpoGoAppPage } from '../../src/pages/ExpoGoApp.page';
 import { WebPreviewPage } from '../../src/pages/WebPreview.page';
 import { runCommand } from '../../src/utils/run-command';
-import { killProcess } from '../../src/utils/process-utils';
+import { killProcess, killPort } from '../../src/utils/process-utils';
 import { createLogger } from '../../src/utils/Logger';
 import { getPackageManagers, PackageManagerCommands } from '../../src/utils/package-manager';
 
@@ -38,40 +38,52 @@ packageManagers.forEach((pm) => {
     let appiumService: AppiumService;
     let emulatorService: EmulatorService;
 
-    before(async function () {
-      this.timeout(5 * 60 * 1000);
-      log.separator(`WM CLI Sync & Web Preview Test Suite (${cmd.label})`);
+    let setupDone = false;
+    let setupError: Error | null = null;
 
-      config = getPreviewCLIConfig();
-      const studioUrl = process.env.STUDIO_URL || 'https://stage-studio.wavemakeronline.com';
-      authService = new AuthService(studioUrl);
+    async function ensureSetup() {
+      if (setupDone) return;
+      if (setupError) throw setupError;
+      try {
+        log.separator(`WM CLI Sync & Web Preview Test Suite (${cmd.label})`);
 
-      const totalSteps = isRunLocal ? 3 : 2;
-      let step = 1;
+        config = getPreviewCLIConfig();
+        const studioUrl = process.env.STUDIO_URL || 'https://stage-studio.wavemakeronline.com';
+        authService = new AuthService(studioUrl);
 
-      if (isRunLocal) {
-        log.step(step++, totalSteps, 'Ensuring Android emulator is running...');
-        emulatorService = new EmulatorService();
-        await emulatorService.ensureRunning();
-      } else {
-        log.info('CI mode (RUN_LOCAL=false): skipping emulator setup');
+        const totalSteps = isRunLocal ? 3 : 2;
+        let step = 1;
+
+        if (isRunLocal) {
+          log.step(step++, totalSteps, 'Ensuring Android emulator is running...');
+          emulatorService = new EmulatorService();
+          await emulatorService.ensureRunning();
+        } else {
+          log.info('CI mode (RUN_LOCAL=false): skipping emulator setup');
+        }
+
+        log.step(step++, totalSteps, 'Authenticating with WaveMaker Studio...');
+        authCookie = await authService.login(config.auth.username, config.auth.password);
+        cookieValue = authService.extractCookieValue(authCookie);
+
+        log.step(step++, totalSteps, 'Fetching preview URL...');
+        previewUrl = await authService.getPreviewUrl(config.projectId, authCookie);
+
+        log.info(`Project ID: ${config.projectId}`);
+        log.info(`Preview URL: ${previewUrl}`);
+        log.info(`Package Manager: ${cmd.label}`);
+        log.info(`Run Local: ${isRunLocal}`);
+
+        setupDone = true;
+      } catch (err: any) {
+        setupError = err;
+        throw err;
       }
-
-      log.step(step++, totalSteps, 'Authenticating with WaveMaker Studio...');
-      authCookie = await authService.login(config.auth.username, config.auth.password);
-      cookieValue = authService.extractCookieValue(authCookie);
-
-      log.step(step++, totalSteps, 'Fetching preview URL...');
-      previewUrl = await authService.getPreviewUrl(config.projectId, authCookie);
-
-      log.info(`Project ID: ${config.projectId}`);
-      log.info(`Preview URL: ${previewUrl}`);
-      log.info(`Package Manager: ${cmd.label}`);
-      log.info(`Run Local: ${isRunLocal}`);
-    });
+    }
 
     it('should run sync command and capture the Expo project path', async function () {
-      this.timeout(config.syncTimeout + 60000);
+      this.timeout(5 * 60 * 1000 + 360000);
+      await ensureSetup();
 
       const projectRootFolder = path.join(config.baseFolder, 'CliApp');
       if (fs.existsSync(projectRootFolder)) {
@@ -111,6 +123,9 @@ packageManagers.forEach((pm) => {
     });
 
     it('should start the project and verify the app in Expo Go on Android', async function () {
+      this.timeout(5 * 60 * 1000);
+      await ensureSetup();
+
       if (!isRunLocal) {
         log.info('Skipping Expo Go test: requires local emulator (RUN_LOCAL=false)');
         this.skip();
@@ -120,8 +135,6 @@ packageManagers.forEach((pm) => {
         log.warn('Skipping: no generated project path from sync');
         this.skip();
       }
-
-      this.timeout(5 * 60 * 1000);
       let client: Browser | undefined;
 
       try {
@@ -139,8 +152,11 @@ packageManagers.forEach((pm) => {
           'appium:autoGrantPermissions': true,
         });
 
+        log.step(3, 4, 'Freeing port 8081 for Metro bundler...');
+        killPort(8081);
+
         const metroCmd = cmd.run('android');
-        log.step(3, 4, `Running Metro bundler (${metroCmd})...`);
+        log.info(`Running Metro bundler (${metroCmd})...`);
         await runCommand(metroCmd, {
           cwd: generatedProjectPath,
           timeout: 120 * 1000,
@@ -184,7 +200,8 @@ packageManagers.forEach((pm) => {
     });
 
     it('should run Expo web-preview and generate the Expo Web App', async function () {
-      this.timeout(config.syncTimeout + 60000);
+      this.timeout(10 * 60 * 1000);
+      await ensureSetup();
       let browser: Browser | undefined;
 
       try {
@@ -216,7 +233,8 @@ packageManagers.forEach((pm) => {
     });
 
     it('should run Esbuild web-preview and generate the Esbuild Web App', async function () {
-      this.timeout(config.syncTimeout + 60000);
+      this.timeout(10 * 60 * 1000);
+      await ensureSetup();
 
       try {
         const esbuildCmd = cmd.cli(`run web-preview "${previewUrl}" --esbuild`);

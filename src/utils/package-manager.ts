@@ -15,19 +15,10 @@ export function getPackageManagers(): PackageManagerType[] {
   return ['npm'];
 }
 
-const variant = getCliVariant();
-
 /**
  * Provides the correct shell commands for a given package manager.
- * CLI variant (classic/ai) is auto-detected from STUDIO_URL.
- *
- * npm link flow:
- *   CLI repo:        npm install → npm link --force
- *   Automation repo: npm link <packageName>
- *
- * yarn link flow:
- *   CLI repo:        yarn install → yarn link
- *   Automation repo: yarn link <packageName>
+ * CLI variant (classic/ai) is auto-detected from STUDIO_URL at call time
+ * (lazy, so dotenv has a chance to load first).
  */
 export class PackageManagerCommands {
   readonly type: PackageManagerType;
@@ -42,10 +33,11 @@ export class PackageManagerCommands {
 
   /** Run the CLI with the given arguments. Resolves to correct binary based on STUDIO_URL. */
   cli(args: string): string {
+    const v = getCliVariant();
     if (this.type === 'yarn') {
-      return `yarn ${variant.binaryName} ${args}`;
+      return `yarn ${v.binaryName} ${args}`;
     }
-    return `npx ${variant.packageName} ${args}`;
+    return `npx ${v.packageName} ${args}`;
   }
 
   /** Install dependencies in a project directory. */
@@ -60,10 +52,11 @@ export class PackageManagerCommands {
 
   /** Direct CLI binary invocation (build commands). */
   cliBinary(args: string): string {
+    const v = getCliVariant();
     if (this.type === 'yarn') {
-      return `yarn ${variant.binaryName} ${args}`;
+      return `yarn ${v.binaryName} ${args}`;
     }
-    return `npx ${variant.binaryName} ${args}`;
+    return `npx ${v.binaryName} ${args}`;
   }
 
   /**

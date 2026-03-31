@@ -121,7 +121,7 @@ describe('WM CLI Sync Command and RUN Web Preview Command', function () {
 
       // 4. Verify the accessibility ID in the running Expo Go project.
       console.log('Connected. Waiting for element to be displayed...');
-      const el = await client.$('~mobile_navbar1_title');
+      const el = await client.$('~menu1_menu_trigger_a');
       await el.waitForDisplayed({ timeout: 60000 }); 
       console.log('✅ Accessibility ID is visible, app is running.');
       await client.deleteSession();
@@ -178,7 +178,7 @@ describe('WM CLI Sync Command and RUN Web Preview Command', function () {
     });
     try {
       await browser.url(previewUrl);
-      const placeholderXPath = "(//h1[@aria-label='mobile_navbar1_title'][normalize-space()='Title'])[2]";
+      const placeholderXPath = "//h1[normalize-space()='MainPage']";
       const el = await browser.$(placeholderXPath);
       await el.waitForDisplayed({ timeout: 30000 });
       console.log('✅ XPath is visible, web preview is working.');

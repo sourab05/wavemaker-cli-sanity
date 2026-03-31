@@ -7,7 +7,7 @@ const log = createLogger('ExpoGoAppPage');
 export class ExpoGoAppPage extends BasePage {
   private appVerificationId: string;
 
-  constructor(driver: Browser, appVerificationId = '~mobile_navbar1_title') {
+  constructor(driver: Browser, appVerificationId = process.env.APP_VERIFICATION_ID || '~mobile_navbar1_title') {
     super(driver);
     this.appVerificationId = appVerificationId;
   }

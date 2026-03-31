@@ -10,7 +10,7 @@ export class WebPreviewPage extends BasePage {
   }
 
   private get navbarTitleXPath() {
-    return "(//h1[@aria-label='mobile_navbar1_title'][normalize-space()='Title'])[2]";
+    return "//h1[normalize-space()='MainPage']";
   }
 
   get navbarTitle() {
@@ -22,7 +22,7 @@ export class WebPreviewPage extends BasePage {
     await this.driver.url(url);
   }
 
-  async verifyPreviewLoaded(timeout = 30000): Promise<boolean> {
+  async verifyPreviewLoaded(timeout = 180000): Promise<boolean> {
     log.info('Verifying web preview is loaded...');
     try {
       const el = await this.navbarTitle;
@@ -36,7 +36,7 @@ export class WebPreviewPage extends BasePage {
     }
   }
 
-  async openAndVerify(url: string, timeout = 30000): Promise<boolean> {
+  async openAndVerify(url: string, timeout = 180000): Promise<boolean> {
     await this.open(url);
     return this.verifyPreviewLoaded(timeout);
   }

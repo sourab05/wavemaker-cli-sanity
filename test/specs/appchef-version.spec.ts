@@ -19,11 +19,9 @@ const CLI_PACKAGE_NAME = variant.packageName;
 describe('AppChef CLI Version Compatibility', function () {
   this.timeout(30 * 1000);
 
-  let latestCliVersion: string;
-  let appchefCliRange: string;
-
-  before(async function () {
+  it('should have the latest CLI version satisfy the AppChef dependency range', async function () {
     log.separator('AppChef CLI Version Compatibility');
+    log.info(`CLI variant: ${variant.platform} (${CLI_PACKAGE_NAME})`);
     log.info('Fetching CLI and AppChef package.json from GitHub...');
 
     const [cliResponse, appchefResponse] = await Promise.all([
@@ -31,28 +29,24 @@ describe('AppChef CLI Version Compatibility', function () {
       axios.get(APPCHEF_PACKAGE_JSON_URL),
     ]);
 
-    latestCliVersion = cliResponse.data.version;
+    const latestCliVersion = cliResponse.data.version;
     log.info(`Latest CLI version (GitHub main): ${latestCliVersion}`);
 
-    if (!semver.valid(latestCliVersion)) {
-      throw new Error(
-        `wm-reactnative-cli package.json has an invalid semver version: "${latestCliVersion}"`
-      );
-    }
+    assert.ok(
+      semver.valid(latestCliVersion),
+      `wm-reactnative-cli package.json has an invalid semver version: "${latestCliVersion}"`
+    );
 
-    appchefCliRange = appchefResponse.data.dependencies?.[CLI_PACKAGE_NAME];
-    if (!appchefCliRange) {
-      throw new Error(
-        `${CLI_PACKAGE_NAME} not found in AppChef package.json dependencies`
-      );
-    }
+    const appchefCliRange = appchefResponse.data.dependencies?.[CLI_PACKAGE_NAME];
+    assert.ok(
+      appchefCliRange,
+      `${CLI_PACKAGE_NAME} not found in AppChef package.json dependencies.\n` +
+        `Available CLI dependencies: ${Object.keys(appchefResponse.data.dependencies || {}).filter(k => k.includes('wm-reactnative')).join(', ') || 'none'}`
+    );
 
     log.info(`AppChef dependency range for ${CLI_PACKAGE_NAME}: ${appchefCliRange}`);
-  });
 
-  it('should have the latest CLI version satisfy the AppChef dependency range', function () {
     const satisfies = semver.satisfies(latestCliVersion, appchefCliRange);
-
     log.info(`Checking: ${latestCliVersion} satisfies "${appchefCliRange}" → ${satisfies}`);
 
     assert.ok(
@@ -63,9 +57,6 @@ describe('AppChef CLI Version Compatibility', function () {
     );
 
     log.success('CLI version is compatible with AppChef');
-  });
-
-  after(function () {
     log.separator('AppChef Version Check Complete');
   });
 });

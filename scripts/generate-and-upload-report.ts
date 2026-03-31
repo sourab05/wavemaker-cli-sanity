@@ -29,12 +29,12 @@ async function main(): Promise<void> {
       'allure-results/ not found. Run tests with mocha-allure-reporter first, or pass a pre-generated report dir.'
     );
   } else {
-    console.log('--- Generating Allure report ---');
-    execSync('allure generate allure-results --clean -o allure-report', {
+    console.log('--- Generating single-file Allure report ---');
+    execSync('allure generate allure-results --clean --single-file -o allure-report', {
       stdio: 'inherit',
       cwd: process.cwd(),
     });
-    console.log('--- Allure report generated ---');
+    console.log('--- Single-file Allure report generated ---');
   }
 
   if (!require('fs').existsSync(reportDir)) {

@@ -3,6 +3,13 @@
 # Exit immediately if a command exits with a non-zero status.
 set -e
 
+# --- Load STUDIO_URL from .env for early variant detection ---
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+if [ -f "$SCRIPT_DIR/.env" ] && [ -z "$STUDIO_URL" ]; then
+  STUDIO_URL="$(grep -E '^STUDIO_URL=' "$SCRIPT_DIR/.env" | head -1 | cut -d'=' -f2-)"
+  export STUDIO_URL
+fi
+
 # --- CLI variant detection from STUDIO_URL ---
 # classic: stage-studio.wavemakeronline.com, dev-studio, etc.
 # ai:      stage-platform.wavemaker.ai, platform.wavemaker.ai
@@ -144,20 +151,20 @@ echo "--- Successfully linked and verified $CLI_BINARY version: $ACTIVE_CLI_VERS
 
 # --- Link CLI in the automation project ---
 cd "$AUTOMATION_REPO_PATH"
-echo "--- Linking automation project to the local CLI ---"
+echo "--- Linking automation project to the local CLI (path: $CLI_REPO_PATH) ---"
 
 case "$PKG_MANAGER" in
   npm)
-    npm link "$CLI_PKG_NAME"
-    echo "[NPM] linked $CLI_PKG_NAME"
+    npm link "$CLI_REPO_PATH" --save=false
+    echo "[NPM] linked $CLI_PKG_NAME → $CLI_REPO_PATH"
     ;;
   yarn)
     yarn link "$CLI_PKG_NAME"
     echo "[YARN] linked $CLI_PKG_NAME"
     ;;
   both)
-    npm link "$CLI_PKG_NAME"
-    echo "[NPM] linked $CLI_PKG_NAME"
+    npm link "$CLI_REPO_PATH" --save=false
+    echo "[NPM] linked $CLI_PKG_NAME → $CLI_REPO_PATH"
     yarn link "$CLI_PKG_NAME"
     echo "[YARN] linked $CLI_PKG_NAME"
     ;;
@@ -165,13 +172,15 @@ esac
 
 # Verify the CLI resolves correctly from the automation project
 echo "--- Verifying CLI version in automation project ---"
-LINKED_VERSION=$(npx $CLI_BINARY --version 2>/dev/null)
+LINKED_VERSION=$(node -e "console.log(require('$CLI_PKG_NAME/package.json').version)" 2>/dev/null || npx $CLI_BINARY --version 2>/dev/null)
 echo "CLI version in automation project: $LINKED_VERSION"
 echo "Expected version: $EXPECTED_CLI_VERSION"
 
 if [ "$LINKED_VERSION" != "$EXPECTED_CLI_VERSION" ]; then
-  echo "Warning: CLI version in automation project ($LINKED_VERSION) does not match expected ($EXPECTED_CLI_VERSION)."
-  echo "The link may not have been consumed correctly."
+  echo "Error: CLI version mismatch! Linked: $LINKED_VERSION, Expected: $EXPECTED_CLI_VERSION"
+  echo "Checking symlink status:"
+  ls -la "node_modules/$CLI_PKG_NAME" 2>/dev/null || echo "  No symlink found at node_modules/$CLI_PKG_NAME"
+  exit 1
 fi
 
 echo "--- Running automation tests (PACKAGE_MANAGER=$PKG_MANAGER) ---"
@@ -222,7 +231,7 @@ S3_REGION="${AWS_REGION:-us-west-2}"
 if [ -n "$S3_BUCKET" ] && [ -f "allure-report/index.html" ]; then
   S3_VERSION="${S3_REPORT_VERSION:-$ACTIVE_CLI_VERSION}"
   S3_PATH="react_native/releases/${S3_VERSION}/Cli/"
-  S3_DEST="s3://${S3_BUCKET}/${S3_PATH}cli.html"
+  S3_DEST="s3://${S3_BUCKET}/${S3_PATH}oldcli.html"
 
   echo "--- Uploading report to S3 as cli.html ---"
   echo "S3 destination: ${S3_DEST}"

@@ -60,7 +60,6 @@ export function getAppConfig(): AppConfig {
     projectPath: path.resolve(
       __dirname,
       '..',
-      '..',
       'rn-zips',
       process.env.RN_PROJECT_FOLDER || 'CliSanity-native-mobile_0.0.1'
     ),

@@ -7,7 +7,7 @@ const log = createLogger('NativeAppPage');
 export class NativeAppPage extends BasePage {
   private accessibilityId: string;
 
-  constructor(driver: Browser, accessibilityId = '~mobile_navbar1_title') {
+  constructor(driver: Browser, accessibilityId = process.env.APP_VERIFICATION_ID || '~mobile_navbar1_title') {
     super(driver);
     this.accessibilityId = accessibilityId;
   }

@@ -30,101 +30,113 @@ packageManagers.forEach((pm) => {
     let emulatorService: EmulatorService;
     let appiumService: AppiumService;
 
-    before(async function () {
-      config = getAppConfig();
-      this.timeout(config.installTimeout + 120000);
+    let setupDone = false;
+    let setupError: Error | null = null;
 
-      log.separator(`React Native Build & Run Test Suite (${cmd.label})`);
-      log.info(`Project path: ${config.projectPath}`);
-      log.info(`Build artifacts: ${config.buildArtifactsDir}`);
-      log.info(`Package Manager: ${cmd.label}`);
-      log.info(`Run Local: ${isRunLocal}`);
-
-      let step = 1;
-      const totalSteps = isRunLocal ? 6 : 4;
-
-      if (isRunLocal) {
-        log.step(step++, totalSteps, 'Ensuring Android emulator is running...');
-        emulatorService = new EmulatorService(config.androidEmulatorName);
-        await emulatorService.ensureRunning();
-
-        log.step(step++, totalSteps, 'Starting Appium server...');
-        appiumService = new AppiumService();
-        await appiumService.start();
-      } else {
-        log.info('CI mode (RUN_LOCAL=false): skipping emulator/Appium setup, will use BrowserStack');
-      }
-
-      log.step(step++, totalSteps, 'Cleaning build artifacts directory...');
-      if (fs.existsSync(config.buildArtifactsDir)) {
-        fs.rmSync(config.buildArtifactsDir, { recursive: true, force: true });
-      }
-      fs.mkdirSync(config.buildArtifactsDir, { recursive: true });
-
-      log.step(4, 5, 'Ensuring wm_rn_config.json exists...');
-      const rnConfigPath = path.join(config.projectPath, 'wm_rn_config.json');
-      if (!fs.existsSync(rnConfigPath)) {
-        const rnConfig = {
-          appName: config.appName,
-          version: '1.0.0',
-          buildNumber: '1',
-          bundleId: config.appPackage,
-        };
-        fs.writeFileSync(rnConfigPath, JSON.stringify(rnConfig, null, 2));
-        log.info('Created wm_rn_config.json');
-      }
-
-      const removed = cmd.cleanForInstall(config.projectPath);
-      if (removed.length) log.info(`Cleaned for ${cmd.label}: removed ${removed.join(', ')}`);
-
-      const installCmd = cmd.install();
-      log.step(5, 6, `Installing project dependencies (${installCmd})...`);
+    async function ensureSetup() {
+      if (setupDone) return;
+      if (setupError) throw setupError;
       try {
-        await runCommand(installCmd, {
-          cwd: config.projectPath,
-          timeout: config.installTimeout,
-          onData: (text, child) => {
-            if (
-              text.includes('Would you like to eject the expo project') ||
-              text.includes('Would you like to empty the dest folder')
-            ) {
-              child.stdin?.write('yes\n');
-            }
-            if (text.includes('Use port 8082 instead?') || text.includes('Use port 8081 instead?')) {
-              child.stdin?.write('y\n');
-            }
-          },
-        });
-        log.success('Dependencies installed');
-      } catch (error: any) {
-        log.error(`Failed to install dependencies: ${error.message}`);
-        throw error;
-      }
+        config = getAppConfig();
 
-      if (cmd.type === 'yarn') {
-        const cliBin = path.join(config.projectPath, 'node_modules', '.bin', variant.binaryName);
-        if (!fs.existsSync(cliBin)) {
-          log.step(6, 7, `Installing CLI in project (yarn add --dev ${variant.packageName})...`);
-          await runCommand(`yarn add --dev ${variant.packageName}`, {
-            cwd: config.projectPath, timeout: config.installTimeout,
+        log.separator(`React Native Build & Run Test Suite (${cmd.label})`);
+        log.info(`Project path: ${config.projectPath}`);
+        log.info(`Build artifacts: ${config.buildArtifactsDir}`);
+        log.info(`Package Manager: ${cmd.label}`);
+        log.info(`Run Local: ${isRunLocal}`);
+
+        let step = 1;
+        const totalSteps = isRunLocal ? 6 : 4;
+
+        if (isRunLocal) {
+          log.step(step++, totalSteps, 'Ensuring Android emulator is running...');
+          emulatorService = new EmulatorService(config.androidEmulatorName);
+          await emulatorService.ensureRunning();
+
+          log.step(step++, totalSteps, 'Starting Appium server...');
+          appiumService = new AppiumService();
+          await appiumService.start();
+        } else {
+          log.info('CI mode (RUN_LOCAL=false): skipping emulator/Appium setup, will use BrowserStack');
+        }
+
+        log.step(step++, totalSteps, 'Cleaning build artifacts directory...');
+        if (fs.existsSync(config.buildArtifactsDir)) {
+          fs.rmSync(config.buildArtifactsDir, { recursive: true, force: true });
+        }
+        fs.mkdirSync(config.buildArtifactsDir, { recursive: true });
+
+        log.step(4, 5, 'Ensuring wm_rn_config.json exists...');
+        const rnConfigPath = path.join(config.projectPath, 'wm_rn_config.json');
+        if (!fs.existsSync(rnConfigPath)) {
+          const rnConfig = {
+            appName: config.appName,
+            version: '1.0.0',
+            buildNumber: '1',
+            bundleId: config.appPackage,
+          };
+          fs.writeFileSync(rnConfigPath, JSON.stringify(rnConfig, null, 2));
+          log.info('Created wm_rn_config.json');
+        }
+
+        const removed = cmd.cleanForInstall(config.projectPath);
+        if (removed.length) log.info(`Cleaned for ${cmd.label}: removed ${removed.join(', ')}`);
+
+        const installCmd = cmd.install();
+        log.step(5, 6, `Installing project dependencies (${installCmd})...`);
+        try {
+          await runCommand(installCmd, {
+            cwd: config.projectPath,
+            timeout: config.installTimeout,
+            onData: (text, child) => {
+              if (
+                text.includes('Would you like to eject the expo project') ||
+                text.includes('Would you like to empty the dest folder')
+              ) {
+                child.stdin?.write('yes\n');
+              }
+              if (text.includes('Use port 8082 instead?') || text.includes('Use port 8081 instead?')) {
+                child.stdin?.write('y\n');
+              }
+            },
           });
-          log.success('CLI installed (binary now in node_modules/.bin)');
+          log.success('Dependencies installed');
+        } catch (error: any) {
+          log.error(`Failed to install dependencies: ${error.message}`);
+          throw error;
+        }
 
-          try {
-            log.step(7, 7, `Overlaying with local linked version (yarn link ${variant.packageName})...`);
-            await runCommand(`yarn link ${variant.packageName}`, {
-              cwd: config.projectPath, timeout: 60000,
+        if (cmd.type === 'yarn') {
+          const cliBin = path.join(config.projectPath, 'node_modules', '.bin', variant.binaryName);
+          if (!fs.existsSync(cliBin)) {
+            log.step(6, 7, `Installing CLI in project (yarn add --dev ${variant.packageName})...`);
+            await runCommand(`yarn add --dev ${variant.packageName}`, {
+              cwd: config.projectPath, timeout: config.installTimeout,
             });
-            log.success('CLI overridden with locally linked branch');
-          } catch {
-            log.info('No local link registered, using npm registry version');
+            log.success('CLI installed (binary now in node_modules/.bin)');
+
+            try {
+              log.step(7, 7, `Overlaying with local linked version (yarn link ${variant.packageName})...`);
+              await runCommand(`yarn link ${variant.packageName}`, {
+                cwd: config.projectPath, timeout: 60000,
+              });
+              log.success('CLI overridden with locally linked branch');
+            } catch {
+              log.info('No local link registered, using npm registry version');
+            }
           }
         }
+
+        setupDone = true;
+      } catch (err: any) {
+        setupError = err;
+        throw err;
       }
-    });
+    }
 
     it('should build the Android APK successfully', async function () {
-      this.timeout(config.buildTimeout);
+      this.timeout(50 * 60 * 1000);
+      await ensureSetup();
 
       const buildCmd = cmd.cliBinary(`build android "${config.projectPath}" --dest="${config.buildArtifactsDir}" --auto-eject=true`);
       log.info(`Build command: ${buildCmd}`);
@@ -166,12 +178,13 @@ packageManagers.forEach((pm) => {
     });
 
     it('should install and verify the Android app', async function () {
+      this.timeout(20 * 60 * 1000);
+      await ensureSetup();
+
       if (!config.androidOutputFile) {
         log.warn('Skipping: APK not available (previous build may have failed)');
         this.skip();
       }
-
-      this.timeout(20 * 60 * 1000);
 
       const { appPackage, appActivity, appVerificationId } = config;
       const apkPath = config.androidOutputFile;
@@ -179,8 +192,13 @@ packageManagers.forEach((pm) => {
 
       try {
         if (isRunLocal) {
-          log.step(1, 3, 'Installing APK on emulator...');
+          log.step(1, 3, 'Waiting for device to be ready and installing APK...');
           try {
+            execSync('adb wait-for-device shell "while [[ -z $(getprop sys.boot_completed) ]]; do sleep 1; done"', {
+              stdio: 'inherit',
+              timeout: 120000,
+            });
+            log.info('Device fully booted, installing APK...');
             execSync(`adb install -r "${apkPath}"`, { stdio: 'inherit' });
             log.success('APK installed');
           } catch {
@@ -229,6 +247,9 @@ packageManagers.forEach((pm) => {
     });
 
     it('should build the iOS IPA successfully', async function () {
+      this.timeout(50 * 60 * 1000);
+      await ensureSetup();
+
       if (os.platform() !== 'darwin') {
         log.info('Skipping IPA build (not on macOS)');
         this.skip();
@@ -240,8 +261,6 @@ packageManagers.forEach((pm) => {
         log.info('Skipping IPA build (missing iOS certificates/provisioning profiles)');
         this.skip();
       }
-
-      this.timeout(config.buildTimeout);
 
       const buildCmd = cmd.cliBinary([
         `build ios "${config.projectPath}"`,

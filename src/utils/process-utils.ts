@@ -1,5 +1,25 @@
-import { spawn, ChildProcess } from 'child_process';
+import { execSync, spawn, ChildProcess } from 'child_process';
 import * as os from 'os';
+
+/**
+ * Kill any process listening on a given TCP port.
+ * Silently does nothing if no process is found.
+ */
+export function killPort(port: number): void {
+  try {
+    if (os.platform() === 'win32') {
+      const out = execSync(`netstat -ano | findstr :${port} | findstr LISTENING`, { encoding: 'utf8' });
+      const pids = new Set(out.trim().split('\n').map(l => l.trim().split(/\s+/).pop()).filter(Boolean));
+      pids.forEach(pid => { try { execSync(`taskkill /PID ${pid} /T /F`, { stdio: 'ignore' }); } catch {} });
+    } else {
+      const out = execSync(`lsof -ti:${port}`, { encoding: 'utf8' });
+      const pids = out.trim().split('\n').filter(Boolean);
+      pids.forEach(pid => { try { process.kill(Number(pid), 'SIGKILL'); } catch {} });
+    }
+  } catch {
+    // No process on that port — nothing to kill
+  }
+}
 
 export function killProcess(child: ChildProcess): void {
   if (child.pid) {
