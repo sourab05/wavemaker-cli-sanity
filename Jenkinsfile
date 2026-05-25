@@ -39,6 +39,8 @@ pipeline {
 
         STUDIO_URL      = credentials('WM_CLI_STUDIO_URL')
 
+        WM_NPM_REGISTRY = 'https://repository.wavemaker.com/repository/wavemaker-npm-repo/'
+
         RUN_LOCAL       = 'false'
         HEADLESS        = 'true'
         PACKAGE_MANAGER = "${params.PKG_MANAGER}"
@@ -49,6 +51,19 @@ pipeline {
             steps {
                 checkout scm
                 sh 'node --version && npm --version'
+            }
+        }
+
+        stage('Configure NPM Registry') {
+            steps {
+                sh '''
+                    echo "--- Configuring WaveMaker npm registry ---"
+                    npm config set registry "${WM_NPM_REGISTRY}"
+                    npm config set @wavemaker:registry "${WM_NPM_REGISTRY}"
+                    npm config set @wavemaker-ai:registry "${WM_NPM_REGISTRY}"
+                    echo "registry=$(npm config get registry)"
+                    echo "@wavemaker:registry=$(npm config get @wavemaker:registry)"
+                '''
             }
         }
 
