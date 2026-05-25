@@ -15,6 +15,7 @@ import { runCommand } from '../../src/utils/run-command';
 import { killProcess, killPort } from '../../src/utils/process-utils';
 import { createLogger } from '../../src/utils/Logger';
 import { getPackageManagers, PackageManagerCommands } from '../../src/utils/package-manager';
+import { getCliVariant } from '../../src/utils/cli-variant';
 
 dotenv.config();
 
@@ -49,7 +50,13 @@ packageManagers.forEach((pm) => {
 
         config = getPreviewCLIConfig();
         const studioUrl = process.env.STUDIO_URL || 'https://stage-studio.wavemakeronline.com';
+        const cliVariant = getCliVariant();
         authService = new AuthService(studioUrl);
+
+        log.info(
+          `CLI variant: ${cliVariant.platform} (${cliVariant.packageName}, binary: ${cliVariant.binaryName})`
+        );
+        log.info(`Studio URL: ${studioUrl}`);
 
         const totalSteps = isRunLocal ? 3 : 2;
         let step = 1;
@@ -143,6 +150,8 @@ packageManagers.forEach((pm) => {
         await appiumService.start();
 
         log.step(2, 4, 'Connecting to Expo Go via Appium...');
+        await emulatorService.ensureExpoGoInstalled();
+
         client = await DriverFactory.createAppiumSession({
           platformName: 'Android',
           'appium:deviceName': process.env.LOCAL_DEVICE_NAME || 'emulator-5554',

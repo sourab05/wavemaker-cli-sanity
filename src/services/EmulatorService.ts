@@ -188,6 +188,52 @@ export class EmulatorService {
   }
 
   /**
+   * Checks if Expo Go is installed on the connected device/emulator.
+   * If not, downloads and installs it via adb.
+   */
+  ensureExpoGoInstalled(): void {
+    const EXPO_GO_PKG = 'host.exp.exponent';
+
+    try {
+      const output = execSync(`"${this.adbBin}" shell pm list packages ${EXPO_GO_PKG}`, {
+        encoding: 'utf8',
+        timeout: 10000,
+      });
+      if (output.includes(EXPO_GO_PKG)) {
+        log.info('Expo Go is already installed');
+        return;
+      }
+    } catch {
+      // pm list failed or package not found — proceed to install
+    }
+
+    log.info('Expo Go not found on device, installing...');
+    const tmpApk = path.join(os.tmpdir(), 'expo-go.apk');
+
+    try {
+      // Use Expo's versioned client install command (works with Expo CLI)
+      execSync('npx expo-cli install:client:android', { stdio: 'inherit', timeout: 120000 });
+      log.success('Expo Go installed via expo-cli');
+      return;
+    } catch {
+      log.info('expo-cli install:client:android not available, trying direct download...');
+    }
+
+    try {
+      const apkUrl = 'https://d1ahtucjixef4r.cloudfront.net/Exponent-2.32.13.apk';
+      execSync(`curl -L -o "${tmpApk}" "${apkUrl}"`, { stdio: 'inherit', timeout: 120000 });
+      execSync(`"${this.adbBin}" install -r "${tmpApk}"`, { stdio: 'inherit', timeout: 60000 });
+      log.success('Expo Go installed from APK');
+    } catch (err: any) {
+      throw new Error(
+        `Failed to install Expo Go. Please install it manually on the emulator.\n${err.message}`
+      );
+    } finally {
+      try { fs.unlinkSync(tmpApk); } catch {}
+    }
+  }
+
+  /**
    * Kills the emulator via adb.
    */
   shutdown(): void {

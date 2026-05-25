@@ -35,6 +35,11 @@ export function getPreviewCLIConfig(): PreviewCLIConfig {
     );
   }
 
+  const studioUrl = (process.env.STUDIO_URL || 'https://stage-studio.wavemakeronline.com').replace(
+    /\/$/,
+    ''
+  );
+
   return {
     projectId:
       process.env.PROJECT_ID ||
@@ -42,8 +47,7 @@ export function getPreviewCLIConfig(): PreviewCLIConfig {
       'WMPRJ2c91808598ab1fa50198ae14a1aa0005',
     baseFolder: path.join(os.homedir(), '.wm-reactnative-cli', 'wm-projects'),
     auth: { username, password },
-    loginUrl:
-      process.env.LOGIN_URL || 'https://stage-studio.wavemakeronline.com/login/authenticate',
+    loginUrl: process.env.LOGIN_URL || `${studioUrl}/login/authenticate`,
     syncTimeout: parseInt(process.env.SYNC_TIMEOUT || '300000', 10),
     appStartTimeout: parseInt(process.env.APP_START_TIMEOUT || '150000', 10),
     setupTimeout: 60 * 1000,

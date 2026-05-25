@@ -1,31 +1,18 @@
 import axios from 'axios';
 import qs from 'qs';
 import { createLogger } from '../utils/Logger';
-import { getCliVariant } from '../utils/cli-variant';
-import { GoogleAuthService, GoogleAuthResult } from './GoogleAuthService';
 
 const log = createLogger('AuthService');
 
 export class AuthService {
   private baseUrl: string;
-  private googleAuthResult?: GoogleAuthResult;
 
   constructor(baseUrl: string) {
     this.baseUrl = baseUrl;
   }
 
-  /**
-   * Login using the appropriate method based on CLI variant:
-   * - Classic (wavemakeronline.com): form-based POST /login/authenticate
-   * - AI (platform.wavemaker.ai): Google OAuth + TOTP via browser (local only)
-   */
+  /** Form-based POST /login/authenticate (classic and stage-ai). */
   async login(username: string, password: string): Promise<string> {
-    const variant = getCliVariant();
-
-    if (variant.platform === 'ai') {
-      return this.loginWithGoogle();
-    }
-
     return this.loginWithForm(username, password);
   }
 
@@ -58,22 +45,9 @@ export class AuthService {
     }
   }
 
-  private async loginWithGoogle(): Promise<string> {
-    log.info(`Authenticating via Google OAuth against ${this.baseUrl}...`);
-
-    const googleAuth = new GoogleAuthService(this.baseUrl);
-    this.googleAuthResult = await googleAuth.login();
-
-    log.success('Google OAuth login successful');
-    return this.googleAuthResult.authCookie;
-  }
-
   async getPreviewUrl(projectId: string, authCookie: string): Promise<string> {
     const previewApiUrl = `${this.baseUrl}/studio/services/projects/${projectId}/deployment/inplaceDeploy`;
-
-    const cookieHeader = this.googleAuthResult
-      ? this.googleAuthResult.cookieHeader
-      : `auth_cookie=${authCookie.split('=')[1]}`;
+    const cookieHeader = `auth_cookie=${authCookie.split('=')[1]}`;
 
     log.info(`Fetching preview URL for project ${projectId}...`);
 
@@ -102,9 +76,6 @@ export class AuthService {
   }
 
   extractCookieValue(authCookie: string): string {
-    if (this.googleAuthResult) {
-      return this.googleAuthResult.cookieValue;
-    }
     return authCookie.split('=')[1].trim();
   }
 }

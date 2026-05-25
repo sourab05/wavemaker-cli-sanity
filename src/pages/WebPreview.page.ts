@@ -10,7 +10,8 @@ export class WebPreviewPage extends BasePage {
   }
 
   private get navbarTitleXPath() {
-    return "//h1[normalize-space()='MainPage']";
+    const title = process.env.WEB_PREVIEW_TITLE || 'Title';
+    return `//h1[normalize-space()='${title}']`;
   }
 
   get navbarTitle() {

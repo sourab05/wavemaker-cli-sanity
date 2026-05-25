@@ -166,8 +166,12 @@ pipeline {
                             break
                     }
 
-                    // browserstack() injects BROWSERSTACK_USERNAME and BROWSERSTACK_ACCESS_KEY
-                    browserstack(credentialsId: 'BROWSERSTACK_CREDS') {
+                    // Username with password cred maps to BROWSERSTACK_USERNAME / BROWSERSTACK_ACCESS_KEY
+                    withCredentials([usernamePassword(
+                        credentialsId: 'BROWSERSTACK_CREDS',
+                        usernameVariable: 'BROWSERSTACK_USERNAME',
+                        passwordVariable: 'BROWSERSTACK_ACCESS_KEY'
+                    )]) {
                         sh """
                             rm -rf allure-results allure-report
 

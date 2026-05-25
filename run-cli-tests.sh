@@ -231,7 +231,7 @@ S3_REGION="${AWS_REGION:-us-west-2}"
 if [ -n "$S3_BUCKET" ] && [ -f "allure-report/index.html" ]; then
   S3_VERSION="${S3_REPORT_VERSION:-$ACTIVE_CLI_VERSION}"
   S3_PATH="react_native/releases/${S3_VERSION}/Cli/"
-  S3_DEST="s3://${S3_BUCKET}/${S3_PATH}oldcli.html"
+  S3_DEST="s3://${S3_BUCKET}/${S3_PATH}devstudio-cli.html"
 
   echo "--- Uploading report to S3 as cli.html ---"
   echo "S3 destination: ${S3_DEST}"
@@ -241,7 +241,7 @@ if [ -n "$S3_BUCKET" ] && [ -f "allure-report/index.html" ]; then
     --acl public-read \
     --content-type "text/html"
 
-  REPORT_URL="https://${S3_BUCKET}.s3.${S3_REGION}.amazonaws.com/${S3_PATH}cli.html"
+  REPORT_URL="https://${S3_BUCKET}.s3.${S3_REGION}.amazonaws.com/${S3_PATH}devstuido-cli.html"
   echo "--- Report uploaded: ${REPORT_URL} ---"
 else
   if [ -z "$S3_BUCKET" ]; then

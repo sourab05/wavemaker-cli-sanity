@@ -178,7 +178,8 @@ describe('WM CLI Sync Command and RUN Web Preview Command', function () {
     });
     try {
       await browser.url(previewUrl);
-      const placeholderXPath = "//h1[normalize-space()='MainPage']";
+      const title = process.env.WEB_PREVIEW_TITLE || '';
+      const placeholderXPath = `//h1[normalize-space()='${title}']`;
       const el = await browser.$(placeholderXPath);
       await el.waitForDisplayed({ timeout: 30000 });
       console.log('✅ XPath is visible, web preview is working.');
