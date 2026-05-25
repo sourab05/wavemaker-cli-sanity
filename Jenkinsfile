@@ -159,6 +159,18 @@ pipeline {
             }
         }
 
+        stage('Setup Android Build Tools') {
+            when {
+                expression { params.RUN_TARGET in ['App Build', 'All Tests'] }
+            }
+            steps {
+                sh '''
+                    chmod +x scripts/setup-android-ci.sh
+                    bash scripts/setup-android-ci.sh
+                '''
+            }
+        }
+
         stage('Run Tests') {
             steps {
                 script {
@@ -189,6 +201,15 @@ pipeline {
                         passwordVariable: 'BROWSERSTACK_ACCESS_KEY'
                     )]) {
                         sh """
+                            if [ -f "${WORKSPACE}/.ci-env.sh" ]; then
+                                echo "--- Loading Android CI env ---"
+                                set -a
+                                . "${WORKSPACE}/.ci-env.sh"
+                                set +a
+                                gradle --version
+                                echo "ANDROID_HOME=\${ANDROID_HOME}"
+                            fi
+
                             rm -rf allure-results allure-report
 
                             CLI_VERSION=\$(${env.CLI_BINARY} --version 2>/dev/null || echo 'unknown')
