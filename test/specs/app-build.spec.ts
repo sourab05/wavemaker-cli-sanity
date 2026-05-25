@@ -146,6 +146,10 @@ packageManagers.forEach((pm) => {
         setupDone = true;
       } catch (err: any) {
         setupError = err;
+        log.error(`Setup failed: ${err.message}`);
+        if (err.response?.status) {
+          log.error(`HTTP ${err.response.status}: ${JSON.stringify(err.response.data)}`);
+        }
         throw err;
       }
     }

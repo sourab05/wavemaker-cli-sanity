@@ -18,11 +18,73 @@ export interface RnProjectManagerConfig {
 }
 
 interface StudioJob {
-  id?: string;
+  id?: string | number;
+  jobId?: string | number;
+  buildId?: string | number;
   completed?: boolean;
   failure?: boolean;
+  failed?: boolean;
   type?: string;
-  outputObject?: { value?: string };
+  status?: string;
+  message?: string;
+  errorMessage?: string;
+  outputObject?: { value?: string; message?: string };
+}
+
+function parseStudioJobs(data: unknown): StudioJob[] {
+  if (Array.isArray(data)) return data;
+  if (!data || typeof data !== 'object') return [];
+
+  const obj = data as Record<string, unknown>;
+  if (Array.isArray(obj.result)) return obj.result;
+  if (Array.isArray(obj.jobs)) return obj.jobs;
+  if (Array.isArray(obj.content)) return obj.content;
+
+  if (obj.result && typeof obj.result === 'object' && !Array.isArray(obj.result)) {
+    return Object.values(obj.result as Record<string, StudioJob>);
+  }
+
+  return [];
+}
+
+function jobMatchesBuildId(job: StudioJob, buildId: string): boolean {
+  return [job.id, job.jobId, job.buildId].some(
+    (value) => value !== undefined && value !== null && String(value) === buildId
+  );
+}
+
+function isJobCompleted(job: StudioJob): boolean {
+  return job.completed === true || job.status === 'COMPLETED' || job.status === 'SUCCESS';
+}
+
+function isJobFailed(job: StudioJob): boolean {
+  return job.failure === true || job.failed === true || job.status === 'FAILED' || job.status === 'FAILURE';
+}
+
+function getJobDownloadValue(job: StudioJob): string | undefined {
+  return job.outputObject?.value;
+}
+
+function formatJobFailure(job: StudioJob, buildId: string): string {
+  const details = [
+    job.message,
+    job.errorMessage,
+    job.outputObject?.message,
+    job.status ? `status=${job.status}` : undefined,
+    job.type ? `type=${job.type}` : undefined,
+  ].filter(Boolean);
+
+  return details.length
+    ? `RN build job ${buildId} failed: ${details.join(' | ')}`
+    : `RN build job ${buildId} failed`;
+}
+
+function summarizeJobs(jobs: StudioJob[]): string {
+  if (!jobs.length) return 'no jobs returned';
+  return jobs
+    .slice(0, 5)
+    .map((job) => `${String(job.id ?? job.jobId ?? '?')}:${job.type ?? 'unknown'}:completed=${Boolean(job.completed)}:failure=${Boolean(job.failure)}`)
+    .join('; ');
 }
 
 export class RnProjectManager {
@@ -34,7 +96,7 @@ export class RnProjectManager {
   constructor(config: RnProjectManagerConfig) {
     this.config = {
       pollIntervalMs: 5000,
-      pollTimeoutMs: 5 * 60 * 1000,
+      pollTimeoutMs: 15 * 60 * 1000,
       ...config,
     };
     this.baseUrl = config.baseUrl.replace(/\/$/, '');
@@ -77,7 +139,7 @@ export class RnProjectManager {
       username: username!,
       password: password!,
       pollIntervalMs: parseInt(process.env.RN_BUILD_POLL_INTERVAL_MS || '5000', 10),
-      pollTimeoutMs: parseInt(process.env.RN_BUILD_POLL_TIMEOUT_MS || `${5 * 60 * 1000}`, 10),
+      pollTimeoutMs: parseInt(process.env.RN_BUILD_POLL_TIMEOUT_MS || `${15 * 60 * 1000}`, 10),
     });
   }
 
@@ -136,54 +198,84 @@ export class RnProjectManager {
     const buildId = String(rawBuildId);
 
     log.info(`RN build started. buildId=${buildId}`);
+    log.info(
+      `Polling jobs at studioProjectId=${this.config.studioProjectId} (timeout ${Math.round((this.config.pollTimeoutMs || 0) / 60000)} min)...`
+    );
 
     const statusUrl = `${this.baseUrl}/studio/services/jobs/project/${this.config.studioProjectId}`;
-    const deadline = Date.now() + (this.config.pollTimeoutMs ?? 5 * 60 * 1000);
+    const deadline = Date.now() + (this.config.pollTimeoutMs ?? 15 * 60 * 1000);
+    let pollCount = 0;
 
     while (Date.now() < deadline) {
-      const jobsResponse = await axios.get(statusUrl, { headers: this.studioHeaders() });
-      const jobs: StudioJob[] = Array.isArray(jobsResponse.data)
-        ? jobsResponse.data
-        : jobsResponse.data?.result || jobsResponse.data?.jobs || [];
+      pollCount++;
+      let jobs: StudioJob[] = [];
 
-      const matchedJob = jobs.find((job) => String(job.id) === String(buildId));
-      if (matchedJob?.completed) {
-        if (matchedJob.failure) {
-          throw new Error(`RN build job ${buildId} failed`);
+      try {
+        const jobsResponse = await axios.get(statusUrl, { headers: this.studioHeaders() });
+        jobs = parseStudioJobs(jobsResponse.data);
+      } catch (error: any) {
+        const status = error.response?.status;
+        const body =
+          typeof error.response?.data === 'string'
+            ? error.response.data
+            : JSON.stringify(error.response?.data ?? error.message);
+        throw new Error(
+          `Failed to poll Studio jobs for ${this.config.studioProjectId} (HTTP ${status ?? 'unknown'}): ${body}`
+        );
+      }
+
+      const matchedJob = jobs.find((job) => jobMatchesBuildId(job, buildId));
+      if (matchedJob && (isJobCompleted(matchedJob) || isJobFailed(matchedJob))) {
+        if (isJobFailed(matchedJob)) {
+          throw new Error(formatJobFailure(matchedJob, buildId));
         }
-        const downloadValue = matchedJob.outputObject?.value;
+
+        const downloadValue = getJobDownloadValue(matchedJob);
         if (!downloadValue) {
-          throw new Error(`RN build job ${buildId} completed without download URL`);
+          throw new Error(
+            `RN build job ${buildId} completed without download URL. Job summary: ${summarizeJobs([matchedJob])}`
+          );
         }
+
         const downloadUrl = this.resolveDownloadUrl(downloadValue);
-        log.success(`RN build completed. Download URL resolved.`);
+        log.success(`RN build completed after ${pollCount} poll(s). Download URL resolved.`);
         return downloadUrl;
       }
 
+      log.info(
+        `Poll ${pollCount}: ${jobs.length} job(s), buildId=${buildId} not complete yet (${summarizeJobs(jobs)})`
+      );
       await sleep(this.config.pollIntervalMs || 5000);
     }
 
-    const jobsResponse = await axios.get(statusUrl, { headers: this.studioHeaders() });
-    const jobs: StudioJob[] = Array.isArray(jobsResponse.data)
-      ? jobsResponse.data
-      : jobsResponse.data?.result || jobsResponse.data?.jobs || [];
+    let jobs: StudioJob[] = [];
+    try {
+      const jobsResponse = await axios.get(statusUrl, { headers: this.studioHeaders() });
+      jobs = parseStudioJobs(jobsResponse.data);
+    } catch {
+      jobs = [];
+    }
 
     const fallbackJob = [...jobs]
       .reverse()
       .find(
         (job) =>
-          job.completed &&
-          !job.failure &&
+          isJobCompleted(job) &&
+          !isJobFailed(job) &&
           job.type === 'NATIVE_MOBILE_ZIP' &&
-          job.outputObject?.value
+          getJobDownloadValue(job)
       );
 
-    if (fallbackJob?.outputObject?.value) {
+    if (fallbackJob) {
+      const downloadValue = getJobDownloadValue(fallbackJob)!;
       log.warn(`Build job ${buildId} not found in poll window; using latest NATIVE_MOBILE_ZIP job.`);
-      return this.resolveDownloadUrl(fallbackJob.outputObject.value);
+      return this.resolveDownloadUrl(downloadValue);
     }
 
-    throw new Error(`Timed out waiting for RN build job ${buildId}`);
+    throw new Error(
+      `Timed out waiting for RN build job ${buildId} after ${pollCount} poll(s). ` +
+        `studioProjectId=${this.config.studioProjectId}. Last jobs: ${summarizeJobs(jobs)}`
+    );
   }
 
   async downloadProject(downloadUrl: string, outputDir: string): Promise<string> {
