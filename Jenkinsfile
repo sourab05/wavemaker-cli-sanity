@@ -38,8 +38,13 @@ pipeline {
         AWS_REGION            = 'us-west-2'
 
         STUDIO_URL      = credentials('WM_CLI_STUDIO_URL')
+        STUDIO_BASE_URL = credentials('WM_CLI_STUDIO_URL')
+        PROJECT_ID      = credentials('WM_CLI_PROJECT_ID')
+        STUDIO_PROJECT_ID = credentials('WM_CLI_STUDIO_PROJECT_ID')
 
         WM_NPM_REGISTRY = 'https://repository.wavemaker.com/repository/wavemaker-npm-repo/'
+
+        RN_BUILD_PROFILE = 'development'
 
         RUN_LOCAL       = 'false'
         HEADLESS        = 'true'
