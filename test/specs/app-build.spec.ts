@@ -14,6 +14,7 @@ import { getPackageManagers, PackageManagerCommands } from '../../src/utils/pack
 import { getCliVariant } from '../../src/utils/cli-variant';
 import { EmulatorService } from '../../src/services/EmulatorService';
 import { AppiumService } from '../../src/services/AppiumService';
+import { RnProjectManager, shouldDownloadRnProjectFromStudio } from '../../src/services/RnProjectManager';
 
 dotenv.config();
 
@@ -46,7 +47,7 @@ packageManagers.forEach((pm) => {
         log.info(`Run Local: ${isRunLocal}`);
 
         let step = 1;
-        const totalSteps = isRunLocal ? 6 : 4;
+        const totalSteps = isRunLocal ? 7 : 5;
 
         if (isRunLocal) {
           log.step(step++, totalSteps, 'Ensuring Android emulator is running...');
@@ -66,8 +67,23 @@ packageManagers.forEach((pm) => {
         }
         fs.mkdirSync(config.buildArtifactsDir, { recursive: true });
 
-        log.step(4, 5, 'Ensuring wm_rn_config.json exists...');
+        if (shouldDownloadRnProjectFromStudio(config.projectPath)) {
+          log.step(step++, totalSteps, 'Downloading RN ZIP from Studio and extracting project...');
+          const rnManager = RnProjectManager.fromEnv();
+          const profileName = process.env.RN_BUILD_PROFILE || 'development';
+          const outputBaseDir = path.join(path.dirname(config.projectPath), '.studio-download');
+          const downloadedProjectPath = await rnManager.prepareProject(outputBaseDir, profileName);
+          config.projectPath = downloadedProjectPath;
+          log.info(`Using Studio RN project at: ${config.projectPath}`);
+        } else {
+          log.info(`Using existing RN project at: ${config.projectPath}`);
+        }
+
+        log.step(step++, totalSteps, 'Ensuring wm_rn_config.json exists...');
         const rnConfigPath = path.join(config.projectPath, 'wm_rn_config.json');
+        if (!fs.existsSync(config.projectPath)) {
+          throw new Error(`RN project directory not found: ${config.projectPath}`);
+        }
         if (!fs.existsSync(rnConfigPath)) {
           const rnConfig = {
             appName: config.appName,
@@ -83,7 +99,7 @@ packageManagers.forEach((pm) => {
         if (removed.length) log.info(`Cleaned for ${cmd.label}: removed ${removed.join(', ')}`);
 
         const installCmd = cmd.install();
-        log.step(5, 6, `Installing project dependencies (${installCmd})...`);
+        log.step(step++, totalSteps, `Installing project dependencies (${installCmd})...`);
         try {
           await runCommand(installCmd, {
             cwd: config.projectPath,
@@ -109,14 +125,14 @@ packageManagers.forEach((pm) => {
         if (cmd.type === 'yarn') {
           const cliBin = path.join(config.projectPath, 'node_modules', '.bin', variant.binaryName);
           if (!fs.existsSync(cliBin)) {
-            log.step(6, 7, `Installing CLI in project (yarn add --dev ${variant.packageName})...`);
+            log.step(step++, totalSteps, `Installing CLI in project (yarn add --dev ${variant.packageName})...`);
             await runCommand(`yarn add --dev ${variant.packageName}`, {
               cwd: config.projectPath, timeout: config.installTimeout,
             });
             log.success('CLI installed (binary now in node_modules/.bin)');
 
             try {
-              log.step(7, 7, `Overlaying with local linked version (yarn link ${variant.packageName})...`);
+              log.step(step, totalSteps, `Overlaying with local linked version (yarn link ${variant.packageName})...`);
               await runCommand(`yarn link ${variant.packageName}`, {
                 cwd: config.projectPath, timeout: 60000,
               });
