@@ -9,7 +9,7 @@ pipeline {
         )
         choice(
             name: 'RUN_TARGET',
-            choices: ['All Tests', 'AppChef Version', 'Sync & Web Preview', 'App Build', 'Maven Tests'],
+            choices: ['All Tests', 'AppChef Version', 'Sync & Web Preview', 'App Build'],
             description: 'Which test suite to run'
         )
         choice(
@@ -148,8 +148,7 @@ pipeline {
                             specFiles = [
                                 './test/specs/appchef-version.spec.ts',
                                 './test/specs/preview-cli.spec.ts',
-                                './test/specs/app-build.spec.ts',
-                                './test/specs/maven-expo.spec.ts'
+                                './test/specs/app-build.spec.ts'
                             ].join(' ')
                             break
                         case 'AppChef Version':
@@ -160,9 +159,6 @@ pipeline {
                             break
                         case 'App Build':
                             specFiles = './test/specs/app-build.spec.ts'
-                            break
-                        case 'Maven Tests':
-                            specFiles = './test/specs/maven-expo.spec.ts'
                             break
                     }
 
