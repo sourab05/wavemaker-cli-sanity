@@ -75,6 +75,7 @@ packageManagers.forEach((pm) => {
           const downloadedProjectPath = await rnManager.prepareProject(outputBaseDir, profileName);
           config.projectPath = downloadedProjectPath;
           log.info(`Using Studio RN project at: ${config.projectPath}`);
+          syncAppConfigFromProject(config.projectPath, config, log);
         } else {
           log.info(`Using existing RN project at: ${config.projectPath}`);
         }
@@ -160,13 +161,16 @@ packageManagers.forEach((pm) => {
 
       const buildCmd = cmd.cliBinary(`build android "${config.projectPath}" --dest="${config.buildArtifactsDir}" --auto-eject=true`);
       log.info(`Build command: ${buildCmd}`);
+      log.info(`ANDROID_HOME=${process.env.ANDROID_HOME || process.env.ANDROID_SDK_ROOT || 'not set'}`);
+      log.info(`JAVA_HOME=${process.env.JAVA_HOME || 'not set'}`);
 
       try {
         await runCommand(buildCmd, {
           cwd: config.projectPath,
           timeout: config.buildTimeout,
-          successMessage: 'android BUILD SUCCEEDED',
+          resolveOnData: (text) => /android BUILD SUCCEEDED|BUILD SUCCESSFUL/i.test(text),
           onData: (text, child) => {
+            ensureAndroidLocalProperties(config.projectPath, log);
             if (
               text.includes('Would you like to eject the expo project') ||
               text.includes('Would you like to empty the dest folder')
@@ -193,6 +197,7 @@ packageManagers.forEach((pm) => {
         log.success(`APK built: ${config.androidOutputFile}`);
       } catch (error: any) {
         log.error(`APK build failed: ${error.message}`);
+        logCliBuildLogs(config.buildArtifactsDir, log);
         throw error;
       }
     });
@@ -342,6 +347,72 @@ packageManagers.forEach((pm) => {
     });
   });
 });
+
+function ensureAndroidLocalProperties(
+  projectPath: string,
+  log: ReturnType<typeof createLogger>
+): void {
+  const androidHome = process.env.ANDROID_HOME || process.env.ANDROID_SDK_ROOT;
+  if (!androidHome) return;
+
+  const androidDir = path.join(projectPath, 'android');
+  if (!fs.existsSync(androidDir)) return;
+
+  const propsPath = path.join(androidDir, 'local.properties');
+  const sdkDir = androidHome.replace(/\\/g, '/');
+  const content = `sdk.dir=${sdkDir}\n`;
+  if (!fs.existsSync(propsPath) || !fs.readFileSync(propsPath, 'utf8').includes(sdkDir)) {
+    fs.writeFileSync(propsPath, content);
+    log.info(`Set android/local.properties sdk.dir=${sdkDir}`);
+  }
+}
+
+function syncAppConfigFromProject(
+  projectPath: string,
+  config: ReturnType<typeof getAppConfig>,
+  log: ReturnType<typeof createLogger>
+): void {
+  const appJsonPath = path.join(projectPath, 'app.json');
+  if (!fs.existsSync(appJsonPath)) return;
+
+  try {
+    const appJson = JSON.parse(fs.readFileSync(appJsonPath, 'utf8'));
+    const pkg = appJson.expo?.android?.package || appJson.android?.package;
+    const name = appJson.expo?.name || appJson.name;
+
+    if (pkg) {
+      config.appPackage = pkg;
+      log.info(`Using Android package from project app.json: ${pkg}`);
+    }
+    if (name && process.env.APP_NAME === undefined) {
+      config.appName = name;
+      log.info(`Using app name from project app.json: ${name}`);
+    }
+  } catch (error: any) {
+    log.warn(`Could not read app.json for package sync: ${error.message}`);
+  }
+}
+
+function logCliBuildLogs(artifactsDir: string, log: ReturnType<typeof createLogger>): void {
+  const logsDir = path.join(artifactsDir, 'output/logs');
+  if (!fs.existsSync(logsDir)) {
+    log.warn(`No CLI build logs at ${logsDir}`);
+    return;
+  }
+
+  const logFiles = fs
+    .readdirSync(logsDir)
+    .filter((f) => f.endsWith('.log') || f.endsWith('.txt'))
+    .map((f) => ({ name: f, mtime: fs.statSync(path.join(logsDir, f)).mtimeMs }))
+    .sort((a, b) => b.mtime - a.mtime)
+    .slice(0, 3);
+
+  for (const { name } of logFiles) {
+    const content = fs.readFileSync(path.join(logsDir, name), 'utf8');
+    const tail = content.split('\n').slice(-50).join('\n');
+    log.error(`--- CLI log: ${name} (last 50 lines) ---\n${tail}`);
+  }
+}
 
 async function verifyAndroidOnBrowserStack(
   config: ReturnType<typeof getAppConfig>,

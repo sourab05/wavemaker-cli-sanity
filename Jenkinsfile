@@ -17,6 +17,16 @@ pipeline {
             choices: ['npm', 'yarn', 'both'],
             description: 'Package manager mode for tests'
         )
+        string(
+            name: 'APP_PACKAGE',
+            defaultValue: 'com.test3',
+            description: 'Android app package / bundle id (must match Studio project)'
+        )
+        string(
+            name: 'APP_NAME',
+            defaultValue: 'test3',
+            description: 'App name for wm_rn_config.json'
+        )
     }
 
     tools {
@@ -49,6 +59,8 @@ pipeline {
         RUN_LOCAL       = 'false'
         HEADLESS        = 'true'
         PACKAGE_MANAGER = "${params.PKG_MANAGER}"
+        APP_PACKAGE     = "${params.APP_PACKAGE}"
+        APP_NAME        = "${params.APP_NAME}"
     }
 
     stages {
