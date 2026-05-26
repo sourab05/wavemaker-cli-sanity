@@ -83,8 +83,26 @@ function summarizeJobs(jobs: StudioJob[]): string {
   if (!jobs.length) return 'no jobs returned';
   return jobs
     .slice(0, 5)
-    .map((job) => `${String(job.id ?? job.jobId ?? '?')}:${job.type ?? 'unknown'}:completed=${Boolean(job.completed)}:failure=${Boolean(job.failure)}`)
+    .map(
+      (job) =>
+        `${String(job.id ?? job.jobId ?? '?')}:${job.type ?? 'unknown'}:completed=${Boolean(job.completed)}:failure=${Boolean(job.failure)}`
+    )
     .join('; ');
+}
+
+function isRetryableStudioBuildError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /internal server error|timeout|timed out|503|502|504|econnreset|etimedout|socket hang up/i.test(
+    message
+  );
+}
+
+function getRetryCount(): number {
+  return Math.max(1, parseInt(process.env.RN_BUILD_MAX_RETRIES || '3', 10));
+}
+
+function getRetryDelayMs(): number {
+  return parseInt(process.env.RN_BUILD_RETRY_DELAY_MS || '15000', 10);
 }
 
 export class RnProjectManager {
@@ -322,14 +340,40 @@ export class RnProjectManager {
   async prepareProject(outputBaseDir: string, profileName: string = 'development'): Promise<string> {
     log.separator('Studio RN ZIP Download & Extract');
 
-    const downloadUrl = await this.buildNativeMobileApp(profileName);
-    const zipPath = await this.downloadProject(downloadUrl, outputBaseDir);
-    const extractPath = path.join(outputBaseDir, 'rn-project');
-    await this.extractZip(zipPath, extractPath);
+    const maxAttempts = getRetryCount();
+    let lastError: Error | undefined;
 
-    const projectPath = findRnProjectRoot(extractPath);
-    log.success(`RN project ready at ${projectPath}`);
-    return projectPath;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        if (attempt > 1) {
+          log.warn(`Retrying Studio RN build (attempt ${attempt}/${maxAttempts})...`);
+        }
+
+        const downloadUrl = await this.buildNativeMobileApp(profileName);
+        const zipPath = await this.downloadProject(downloadUrl, outputBaseDir);
+        const extractPath = path.join(outputBaseDir, 'rn-project');
+        await this.extractZip(zipPath, extractPath);
+
+        const projectPath = findRnProjectRoot(extractPath);
+        log.success(`RN project ready at ${projectPath}`);
+        return projectPath;
+      } catch (error: any) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+        const retryable = isRetryableStudioBuildError(lastError);
+        log.error(`Studio RN build attempt ${attempt}/${maxAttempts} failed: ${lastError.message}`);
+
+        if (!retryable || attempt >= maxAttempts) {
+          throw lastError;
+        }
+
+        log.warn(
+          `Transient Studio error detected; waiting ${getRetryDelayMs() / 1000}s before retry...`
+        );
+        await sleep(getRetryDelayMs());
+      }
+    }
+
+    throw lastError ?? new Error('Studio RN build failed');
   }
 }
 

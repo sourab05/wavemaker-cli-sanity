@@ -56,6 +56,10 @@ pipeline {
 
         RN_BUILD_PROFILE = 'development'
 
+        // 2x local defaults: BUILD 45→90 min, INSTALL 5→10 min
+        BUILD_TIMEOUT   = '5400000'
+        INSTALL_TIMEOUT = '600000'
+
         RUN_LOCAL       = 'false'
         HEADLESS        = 'true'
         PACKAGE_MANAGER = "${params.PKG_MANAGER}"

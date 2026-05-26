@@ -156,7 +156,7 @@ packageManagers.forEach((pm) => {
     }
 
     it('should build the Android APK successfully', async function () {
-      this.timeout(50 * 60 * 1000);
+      this.timeout(config.buildTimeout + 5 * 60 * 1000);
       await ensureSetup();
 
       const buildCmd = cmd.cliBinary(`build android "${config.projectPath}" --dest="${config.buildArtifactsDir}" --auto-eject=true`);
@@ -272,7 +272,7 @@ packageManagers.forEach((pm) => {
     });
 
     it('should build the iOS IPA successfully', async function () {
-      this.timeout(50 * 60 * 1000);
+      this.timeout(config.buildTimeout + 5 * 60 * 1000);
       await ensureSetup();
 
       if (os.platform() !== 'darwin') {
