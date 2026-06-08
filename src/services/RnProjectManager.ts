@@ -17,6 +17,12 @@ export interface RnProjectManagerConfig {
   pollTimeoutMs?: number;
 }
 
+interface StudioJobMetadata {
+  nativeMobileZipId?: string;
+  profileName?: string;
+  [key: string]: unknown;
+}
+
 interface StudioJob {
   id?: string | number;
   jobId?: string | number;
@@ -28,7 +34,10 @@ interface StudioJob {
   status?: string;
   message?: string;
   errorMessage?: string;
-  outputObject?: { value?: string; message?: string };
+  startTime?: number;
+  endTime?: number;
+  metadata?: StudioJobMetadata;
+  outputObject?: { value?: string; message?: string; outputType?: string };
 }
 
 function parseStudioJobs(data: unknown): StudioJob[] {
@@ -47,6 +56,29 @@ function parseStudioJobs(data: unknown): StudioJob[] {
   return [];
 }
 
+/** Prefer metadata.nativeMobileZipId from Studio jobs API; fall back to outputObject.value. */
+function getJobNativeMobileZipId(job: StudioJob): string | undefined {
+  const fromMetadata = job.metadata?.nativeMobileZipId?.trim();
+  if (fromMetadata) return fromMetadata;
+
+  const outputValue = job.outputObject?.value?.trim();
+  if (!outputValue) return undefined;
+
+  const fileServiceMatch = outputValue.match(/\/file-service\/([^/?#]+)/i);
+  if (fileServiceMatch) return fileServiceMatch[1];
+
+  if (!outputValue.includes('/')) return outputValue;
+  return undefined;
+}
+
+function jobHasNativeZip(job: StudioJob): boolean {
+  return Boolean(getJobNativeMobileZipId(job));
+}
+
+function sortJobsNewestFirst(jobs: StudioJob[]): StudioJob[] {
+  return [...jobs].sort((a, b) => (b.startTime ?? 0) - (a.startTime ?? 0));
+}
+
 function jobMatchesBuildId(job: StudioJob, buildId: string): boolean {
   return [job.id, job.jobId, job.buildId].some(
     (value) => value !== undefined && value !== null && String(value) === buildId
@@ -59,10 +91,6 @@ function isJobCompleted(job: StudioJob): boolean {
 
 function isJobFailed(job: StudioJob): boolean {
   return job.failure === true || job.failed === true || job.status === 'FAILED' || job.status === 'FAILURE';
-}
-
-function getJobDownloadValue(job: StudioJob): string | undefined {
-  return job.outputObject?.value;
 }
 
 function formatJobFailure(job: StudioJob, buildId: string): string {
@@ -81,13 +109,21 @@ function formatJobFailure(job: StudioJob, buildId: string): string {
 
 function summarizeJobs(jobs: StudioJob[]): string {
   if (!jobs.length) return 'no jobs returned';
-  return jobs
+  return sortJobsNewestFirst(jobs)
     .slice(0, 5)
-    .map(
-      (job) =>
-        `${String(job.id ?? job.jobId ?? '?')}:${job.type ?? 'unknown'}:completed=${Boolean(job.completed)}:failure=${Boolean(job.failure)}`
-    )
+    .map((job) => {
+      const zipId = getJobNativeMobileZipId(job);
+      return `${String(job.id ?? job.jobId ?? '?')}:${job.type ?? 'unknown'}:zip=${zipId ?? 'none'}:completed=${Boolean(job.completed)}:failure=${Boolean(job.failure)}`;
+    })
     .join('; ');
+}
+
+function isRetryableJobsPollError(error: unknown): boolean {
+  if (axios.isAxiosError(error)) {
+    const status = error.response?.status;
+    if (status && [408, 429, 500, 502, 503, 504].includes(status)) return true;
+  }
+  return isRetryableStudioBuildError(error);
 }
 
 function isRetryableStudioBuildError(error: unknown): boolean {
@@ -103,6 +139,29 @@ function getRetryCount(): number {
 
 function getRetryDelayMs(): number {
   return parseInt(process.env.RN_BUILD_RETRY_DELAY_MS || '15000', 10);
+}
+
+function getEmptyJobsPollLimit(): number {
+  return Math.max(3, parseInt(process.env.RN_BUILD_EMPTY_JOBS_POLL_LIMIT || '12', 10));
+}
+
+function shouldSkipStudioBuild(): boolean {
+  return process.env.RN_SKIP_STUDIO_BUILD === 'true';
+}
+
+function previewResponseData(data: unknown): string {
+  if (typeof data === 'string') return data.slice(0, 300);
+  try {
+    return JSON.stringify(data).slice(0, 300);
+  } catch {
+    return String(data).slice(0, 300);
+  }
+}
+
+/** Fallback file-service URL or file id when Studio build/polling fails. */
+export function getFallbackZipDownloadUrl(): string | undefined {
+  const value = process.env.RN_ZIP_DOWNLOAD_URL?.trim();
+  return value || undefined;
 }
 
 export class RnProjectManager {
@@ -135,9 +194,10 @@ export class RnProjectManager {
     const password =
       process.env.STUDIO_PASSWORD || process.env.WM_PASSWORD || process.env.WMO_PASS;
 
+    const directZipUrl = process.env.RN_ZIP_DOWNLOAD_URL?.trim();
     const missing: string[] = [];
-    if (!projectId) missing.push('PROJECT_ID');
-    if (!studioProjectId) missing.push('STUDIO_PROJECT_ID');
+    if (!projectId) missing.push('PROJECT_ID (or WM_PROJECT_ID)');
+    if (!directZipUrl && !studioProjectId) missing.push('STUDIO_PROJECT_ID');
     if (!username) missing.push('STUDIO_USERNAME (or WM_USERNAME)');
     if (!password) missing.push('STUDIO_PASSWORD (or WM_PASSWORD)');
 
@@ -153,7 +213,7 @@ export class RnProjectManager {
     return new RnProjectManager({
       baseUrl,
       projectId: projectId!,
-      studioProjectId: studioProjectId!,
+      studioProjectId: studioProjectId || '',
       username: username!,
       password: password!,
       pollIntervalMs: parseInt(process.env.RN_BUILD_POLL_INTERVAL_MS || '5000', 10),
@@ -193,6 +253,33 @@ export class RnProjectManager {
     return `${this.fileServiceUrl}/${value}`;
   }
 
+  private async fetchProjectJobs(): Promise<StudioJob[]> {
+    const statusUrl = `${this.baseUrl}/studio/services/jobs/project/${this.config.studioProjectId}`;
+    const jobsResponse = await axios.get(statusUrl, { headers: this.studioHeaders() });
+    return parseStudioJobs(jobsResponse.data);
+  }
+
+  private resolveZipFromJobs(jobs: StudioJob[], buildId?: string): string | undefined {
+    if (buildId) {
+      const matchedJob = jobs.find((job) => jobMatchesBuildId(job, buildId));
+      if (matchedJob && isJobCompleted(matchedJob) && !isJobFailed(matchedJob)) {
+        const zipId = getJobNativeMobileZipId(matchedJob);
+        if (zipId) return this.resolveDownloadUrl(zipId);
+      }
+    }
+
+    const latestJob = sortJobsNewestFirst(jobs).find(
+      (job) =>
+        isJobCompleted(job) &&
+        !isJobFailed(job) &&
+        (job.type === 'NATIVE_MOBILE_ZIP' || job.type?.includes('NATIVE_MOBILE')) &&
+        jobHasNativeZip(job)
+    );
+
+    if (!latestJob) return undefined;
+    return this.resolveDownloadUrl(getJobNativeMobileZipId(latestJob)!);
+  }
+
   async buildNativeMobileApp(profileName: string = 'development'): Promise<string> {
     if (!this.authCookie) await this.login();
 
@@ -223,13 +310,17 @@ export class RnProjectManager {
     const statusUrl = `${this.baseUrl}/studio/services/jobs/project/${this.config.studioProjectId}`;
     const deadline = Date.now() + (this.config.pollTimeoutMs ?? 15 * 60 * 1000);
     let pollCount = 0;
+    let consecutiveEmptyJobs = 0;
+    const emptyJobsLimit = getEmptyJobsPollLimit();
 
     while (Date.now() < deadline) {
       pollCount++;
       let jobs: StudioJob[] = [];
+      let rawResponse: unknown;
 
       try {
         const jobsResponse = await axios.get(statusUrl, { headers: this.studioHeaders() });
+        rawResponse = jobsResponse.data;
         jobs = parseStudioJobs(jobsResponse.data);
       } catch (error: any) {
         const status = error.response?.status;
@@ -237,6 +328,15 @@ export class RnProjectManager {
           typeof error.response?.data === 'string'
             ? error.response.data
             : JSON.stringify(error.response?.data ?? error.message);
+
+        if (isRetryableJobsPollError(error) && Date.now() < deadline) {
+          log.warn(
+            `Jobs poll error (HTTP ${status ?? 'unknown'}) on poll ${pollCount}; retrying... ${body.slice(0, 200)}`
+          );
+          await sleep(this.config.pollIntervalMs || 5000);
+          continue;
+        }
+
         throw new Error(
           `Failed to poll Studio jobs for ${this.config.studioProjectId} (HTTP ${status ?? 'unknown'}): ${body}`
         );
@@ -248,16 +348,37 @@ export class RnProjectManager {
           throw new Error(formatJobFailure(matchedJob, buildId));
         }
 
-        const downloadValue = getJobDownloadValue(matchedJob);
-        if (!downloadValue) {
+        const zipId = getJobNativeMobileZipId(matchedJob);
+        if (!zipId) {
           throw new Error(
-            `RN build job ${buildId} completed without download URL. Job summary: ${summarizeJobs([matchedJob])}`
+            `RN build job ${buildId} completed without nativeMobileZipId. Job summary: ${summarizeJobs([matchedJob])}`
           );
         }
 
-        const downloadUrl = this.resolveDownloadUrl(downloadValue);
-        log.success(`RN build completed after ${pollCount} poll(s). Download URL resolved.`);
+        const downloadUrl = this.resolveDownloadUrl(zipId);
+        log.success(
+          `RN build completed after ${pollCount} poll(s). nativeMobileZipId=${zipId} → ${downloadUrl}`
+        );
         return downloadUrl;
+      }
+
+      if (jobs.length === 0) {
+        consecutiveEmptyJobs++;
+        if (pollCount === 1 || pollCount % emptyJobsLimit === 0) {
+          log.warn(
+            `Jobs API returned 0 jobs (poll ${pollCount}, studioProjectId=${this.config.studioProjectId}). ` +
+              `Response preview: ${previewResponseData(rawResponse)}`
+          );
+        }
+        if (consecutiveEmptyJobs >= emptyJobsLimit) {
+          throw new Error(
+            `Jobs API returned 0 jobs for ${consecutiveEmptyJobs} consecutive polls (~${Math.round((consecutiveEmptyJobs * (this.config.pollIntervalMs || 5000)) / 1000)}s). ` +
+              `Check Jenkins credential WM_CLI_STUDIO_PROJECT_ID is proj-xxx (not WMPRJ-xxx). ` +
+              `URL: ${statusUrl}`
+          );
+        }
+      } else {
+        consecutiveEmptyJobs = 0;
       }
 
       log.info(
@@ -274,25 +395,102 @@ export class RnProjectManager {
       jobs = [];
     }
 
-    const fallbackJob = [...jobs]
-      .reverse()
-      .find(
-        (job) =>
-          isJobCompleted(job) &&
-          !isJobFailed(job) &&
-          job.type === 'NATIVE_MOBILE_ZIP' &&
-          getJobDownloadValue(job)
-      );
+    const fallbackJob = sortJobsNewestFirst(jobs).find(
+      (job) =>
+        isJobCompleted(job) &&
+        !isJobFailed(job) &&
+        job.type === 'NATIVE_MOBILE_ZIP' &&
+        jobHasNativeZip(job)
+    );
 
     if (fallbackJob) {
-      const downloadValue = getJobDownloadValue(fallbackJob)!;
-      log.warn(`Build job ${buildId} not found in poll window; using latest NATIVE_MOBILE_ZIP job.`);
-      return this.resolveDownloadUrl(downloadValue);
+      const zipId = getJobNativeMobileZipId(fallbackJob)!;
+      log.warn(
+        `Build job ${buildId} not found in poll window; using latest NATIVE_MOBILE_ZIP (nativeMobileZipId=${zipId}).`
+      );
+      return this.resolveDownloadUrl(zipId);
     }
 
     throw new Error(
       `Timed out waiting for RN build job ${buildId} after ${pollCount} poll(s). ` +
         `studioProjectId=${this.config.studioProjectId}. Last jobs: ${summarizeJobs(jobs)}`
+    );
+  }
+
+  /**
+   * Find the latest completed native-mobile ZIP from Studio jobs (no new build).
+   * Uses the same jobs API as Studio UI:
+   * GET /studio/services/jobs/project/{STUDIO_PROJECT_ID}
+   */
+  async fetchLatestNativeZipDownloadUrl(): Promise<string | undefined> {
+    if (!this.config.studioProjectId) {
+      log.warn('STUDIO_PROJECT_ID not set; skipping jobs API ZIP lookup');
+      return undefined;
+    }
+
+    if (!this.authCookie) await this.login();
+
+    const statusUrl = `${this.baseUrl}/studio/services/jobs/project/${this.config.studioProjectId}`;
+    log.info(`Looking up latest NATIVE_MOBILE_ZIP from jobs API (${this.config.studioProjectId})...`);
+
+    let jobs: StudioJob[];
+    try {
+      jobs = await this.fetchProjectJobs();
+    } catch (error: any) {
+      const status = error.response?.status;
+      const body =
+        typeof error.response?.data === 'string'
+          ? error.response.data
+          : JSON.stringify(error.response?.data ?? error.message);
+      throw new Error(
+        `Failed to fetch Studio jobs for ${this.config.studioProjectId} (HTTP ${status ?? 'unknown'}): ${body}`
+      );
+    }
+
+    if (!jobs.length) {
+      log.warn(`Jobs API returned 0 jobs for studioProjectId=${this.config.studioProjectId}`);
+      return undefined;
+    }
+
+    const downloadUrl = this.resolveZipFromJobs(jobs);
+    if (!downloadUrl) {
+      log.warn(`No completed NATIVE_MOBILE_ZIP job with nativeMobileZipId (${jobs.length} job(s) returned)`);
+      return undefined;
+    }
+
+    log.success(`Found existing native ZIP from jobs API → ${downloadUrl}`);
+    return downloadUrl;
+  }
+
+  /** Skip Studio build; resolve ZIP from jobs API or RN_ZIP_DOWNLOAD_URL only. */
+  async prepareProjectFromExistingZip(outputBaseDir: string): Promise<string> {
+    log.separator('Studio RN ZIP Download (existing ZIP, skip build)');
+
+    if (fs.existsSync(outputBaseDir)) {
+      fs.rmSync(outputBaseDir, { recursive: true, force: true });
+    }
+    fs.mkdirSync(outputBaseDir, { recursive: true });
+
+    if (!this.authCookie) await this.login();
+
+    try {
+      const jobsZipUrl = await this.fetchLatestNativeZipDownloadUrl();
+      if (jobsZipUrl) {
+        return await this.downloadExtractAndFindRoot(outputBaseDir, jobsZipUrl);
+      }
+    } catch (error: any) {
+      log.warn(`Jobs API lookup failed: ${error.message}`);
+    }
+
+    const fallbackZip = getFallbackZipDownloadUrl();
+    if (fallbackZip) {
+      const downloadUrl = this.resolveDownloadUrl(fallbackZip);
+      log.warn(`Using RN_ZIP_DOWNLOAD_URL → ${downloadUrl}`);
+      return await this.downloadExtractAndFindRoot(outputBaseDir, downloadUrl);
+    }
+
+    throw new Error(
+      'RN_SKIP_STUDIO_BUILD=true but no ZIP found via jobs API and RN_ZIP_DOWNLOAD_URL is not set'
     );
   }
 
@@ -335,13 +533,28 @@ export class RnProjectManager {
   }
 
   /**
-   * Trigger Studio RN build, download ZIP, extract, and return the RN project root path.
+   * 1) Trigger Studio RN build and poll for the new ZIP file id (outputObject.value).
+   * 2) On failure, use latest NATIVE_MOBILE_ZIP from jobs API.
+   * 3) On failure, download RN_ZIP_DOWNLOAD_URL (file-service URL or file id).
    */
   async prepareProject(outputBaseDir: string, profileName: string = 'development'): Promise<string> {
     log.separator('Studio RN ZIP Download & Extract');
 
+    if (fs.existsSync(outputBaseDir)) {
+      log.info(`Cleaning previous download at ${outputBaseDir}...`);
+      fs.rmSync(outputBaseDir, { recursive: true, force: true });
+    }
+    fs.mkdirSync(outputBaseDir, { recursive: true });
+
+    if (!this.authCookie) await this.login();
+
+    if (shouldSkipStudioBuild()) {
+      log.info('RN_SKIP_STUDIO_BUILD=true — skipping new Studio build');
+      return this.prepareProjectFromExistingZip(outputBaseDir);
+    }
+
     const maxAttempts = getRetryCount();
-    let lastError: Error | undefined;
+    let buildError: Error | undefined;
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
@@ -350,30 +563,56 @@ export class RnProjectManager {
         }
 
         const downloadUrl = await this.buildNativeMobileApp(profileName);
-        const zipPath = await this.downloadProject(downloadUrl, outputBaseDir);
-        const extractPath = path.join(outputBaseDir, 'rn-project');
-        await this.extractZip(zipPath, extractPath);
-
-        const projectPath = findRnProjectRoot(extractPath);
-        log.success(`RN project ready at ${projectPath}`);
-        return projectPath;
+        return await this.downloadExtractAndFindRoot(outputBaseDir, downloadUrl);
       } catch (error: any) {
-        lastError = error instanceof Error ? error : new Error(String(error));
-        const retryable = isRetryableStudioBuildError(lastError);
-        log.error(`Studio RN build attempt ${attempt}/${maxAttempts} failed: ${lastError.message}`);
+        buildError = error instanceof Error ? error : new Error(String(error));
+        log.error(`Studio RN build attempt ${attempt}/${maxAttempts} failed: ${buildError.message}`);
 
-        if (!retryable || attempt >= maxAttempts) {
-          throw lastError;
+        if (isRetryableStudioBuildError(buildError) && attempt < maxAttempts) {
+          log.warn(
+            `Transient Studio error detected; waiting ${getRetryDelayMs() / 1000}s before retry...`
+          );
+          await sleep(getRetryDelayMs());
+          continue;
         }
-
-        log.warn(
-          `Transient Studio error detected; waiting ${getRetryDelayMs() / 1000}s before retry...`
-        );
-        await sleep(getRetryDelayMs());
+        break;
       }
     }
 
-    throw lastError ?? new Error('Studio RN build failed');
+    log.warn('Studio RN build did not produce a ZIP; trying fallback sources...');
+
+    try {
+      const jobsZipUrl = await this.fetchLatestNativeZipDownloadUrl();
+      if (jobsZipUrl) {
+        log.warn('Fallback: downloading latest native ZIP from Studio jobs API');
+        return await this.downloadExtractAndFindRoot(outputBaseDir, jobsZipUrl);
+      }
+    } catch (error: any) {
+      const message = error instanceof Error ? error.message : String(error);
+      log.warn(`Jobs API fallback failed: ${message}`);
+    }
+
+    const fallbackZip = getFallbackZipDownloadUrl();
+    if (fallbackZip) {
+      const downloadUrl = this.resolveDownloadUrl(fallbackZip);
+      log.warn(`Fallback: downloading configured RN_ZIP_DOWNLOAD_URL → ${downloadUrl}`);
+      return await this.downloadExtractAndFindRoot(outputBaseDir, downloadUrl);
+    }
+
+    throw buildError ?? new Error('Studio RN build failed and no fallback ZIP source configured');
+  }
+
+  private async downloadExtractAndFindRoot(
+    outputBaseDir: string,
+    downloadUrl: string
+  ): Promise<string> {
+    const zipPath = await this.downloadProject(downloadUrl, outputBaseDir);
+    const extractPath = path.join(outputBaseDir, 'rn-project');
+    await this.extractZip(zipPath, extractPath);
+
+    const projectPath = findRnProjectRoot(extractPath);
+    log.success(`RN project ready at ${projectPath}`);
+    return projectPath;
   }
 }
 
@@ -399,13 +638,9 @@ export function findRnProjectRoot(searchDir: string): string {
   throw new Error(`Could not locate RN project root under ${searchDir}`);
 }
 
-export function shouldDownloadRnProjectFromStudio(projectPath: string): boolean {
-  if (process.env.RN_DOWNLOAD_FROM_STUDIO === 'true') return true;
-  if (process.env.RN_DOWNLOAD_FROM_STUDIO === 'false') return false;
-  if (process.env.RUN_LOCAL === 'false') return true;
-
-  const packageJsonPath = path.join(projectPath, 'package.json');
-  return !fs.existsSync(projectPath) || !fs.existsSync(packageJsonPath);
+/** Default: always download a fresh RN ZIP from Studio. Set RN_DOWNLOAD_FROM_STUDIO=false to use src/rn-zips/. */
+export function shouldDownloadRnProjectFromStudio(_projectPath: string): boolean {
+  return process.env.RN_DOWNLOAD_FROM_STUDIO !== 'false';
 }
 
 function sleep(ms: number): Promise<void> {

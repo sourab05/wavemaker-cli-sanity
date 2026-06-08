@@ -188,11 +188,28 @@ export class EmulatorService {
   }
 
   /**
-   * Checks if Expo Go is installed on the connected device/emulator.
-   * If not, downloads and installs it via adb.
+   * Ensures the connected device/emulator has an Expo Go build matching the project SDK.
+   * When projectPath is provided, uses `npx expo install:client:android` so Expo Go 54.x
+   * is installed instead of a stale 2.x client that blocks `expo start --android`.
    */
-  ensureExpoGoInstalled(): void {
+  ensureExpoGoInstalled(projectPath?: string): void {
     const EXPO_GO_PKG = 'host.exp.exponent';
+
+    if (projectPath) {
+      log.info(`Installing SDK-matched Expo Go for project: ${projectPath}`);
+      try {
+        execSync('npx expo install:client:android', {
+          cwd: projectPath,
+          stdio: 'inherit',
+          timeout: 180000,
+          env: { ...process.env, CI: 'false' },
+        });
+        log.success('SDK-matched Expo Go installed');
+        return;
+      } catch (err: any) {
+        log.warn(`expo install:client:android failed: ${err.message}. Trying legacy install...`);
+      }
+    }
 
     try {
       const output = execSync(`"${this.adbBin}" shell pm list packages ${EXPO_GO_PKG}`, {
@@ -211,12 +228,11 @@ export class EmulatorService {
     const tmpApk = path.join(os.tmpdir(), 'expo-go.apk');
 
     try {
-      // Use Expo's versioned client install command (works with Expo CLI)
-      execSync('npx expo-cli install:client:android', { stdio: 'inherit', timeout: 120000 });
-      log.success('Expo Go installed via expo-cli');
+      execSync('npx expo install:client:android', { stdio: 'inherit', timeout: 180000 });
+      log.success('Expo Go installed via expo CLI');
       return;
     } catch {
-      log.info('expo-cli install:client:android not available, trying direct download...');
+      log.info('expo install:client:android not available, trying direct download...');
     }
 
     try {

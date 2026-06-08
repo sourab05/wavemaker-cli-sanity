@@ -101,6 +101,12 @@ export function runCommand(
         child.stdin?.write('y\n');
         lastPromptCheck += 'port;';
       }
+      if (combinedOutput.includes('install the recommended expo go version') &&
+          !lastPromptCheck.includes('expo_go')) {
+        console.log('[runCommand] Auto-responding "y" to Expo Go install prompt');
+        child.stdin?.write('y\n');
+        lastPromptCheck += 'expo_go;';
+      }
 
       if (onData) onData(text, child);
 

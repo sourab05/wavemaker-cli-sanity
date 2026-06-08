@@ -156,8 +156,8 @@ packageManagers.forEach((pm) => {
     }
 
     it('should build the Android APK successfully', async function () {
-      this.timeout(config.buildTimeout + 5 * 60 * 1000);
       await ensureSetup();
+      this.timeout(config.buildTimeout + 5 * 60 * 1000);
 
       const buildCmd = cmd.cliBinary(`build android "${config.projectPath}" --dest="${config.buildArtifactsDir}" --auto-eject=true`);
       log.info(`Build command: ${buildCmd}`);
@@ -168,7 +168,6 @@ packageManagers.forEach((pm) => {
         await runCommand(buildCmd, {
           cwd: config.projectPath,
           timeout: config.buildTimeout,
-          resolveOnData: (text) => /android BUILD SUCCEEDED|BUILD SUCCESSFUL/i.test(text),
           onData: (text, child) => {
             ensureAndroidLocalProperties(config.projectPath, log);
             if (
@@ -183,17 +182,7 @@ packageManagers.forEach((pm) => {
           },
         });
 
-        const androidOutputDir = path.join(config.buildArtifactsDir, 'output/android');
-        if (!fs.existsSync(androidOutputDir)) {
-          throw new Error('Android output directory not found after build');
-        }
-
-        const apkFiles = fs.readdirSync(androidOutputDir).filter((f) => f.endsWith('.apk'));
-        if (apkFiles.length === 0) {
-          throw new Error('No APK file found after build');
-        }
-
-        config.androidOutputFile = path.join(androidOutputDir, apkFiles[0]);
+        config.androidOutputFile = findAndroidApk(config.buildArtifactsDir);
         log.success(`APK built: ${config.androidOutputFile}`);
       } catch (error: any) {
         log.error(`APK build failed: ${error.message}`);
@@ -272,8 +261,8 @@ packageManagers.forEach((pm) => {
     });
 
     it('should build the iOS IPA successfully', async function () {
-      this.timeout(config.buildTimeout + 5 * 60 * 1000);
       await ensureSetup();
+      this.timeout(config.buildTimeout + 5 * 60 * 1000);
 
       if (os.platform() !== 'darwin') {
         log.info('Skipping IPA build (not on macOS)');
@@ -287,9 +276,10 @@ packageManagers.forEach((pm) => {
         this.skip();
       }
 
+      const iosDestDir = path.join(config.buildArtifactsDir, 'ios-workspace');
       const buildCmd = cmd.cliBinary([
         `build ios "${config.projectPath}"`,
-        `--dest="${config.buildArtifactsDir}"`,
+        `--dest="${iosDestDir}"`,
         `--iCertificate="${IOS_P12_CERT_PATH}"`,
         `--iCertificatePassword="${IOS_P12_PASSWORD}"`,
         `--iProvisioningFile="${IOS_PROVISION_PROFILE_PATH}"`,
@@ -316,7 +306,7 @@ packageManagers.forEach((pm) => {
           },
         });
 
-        const iosOutputDir = path.join(config.buildArtifactsDir, 'output/ios');
+        const iosOutputDir = path.join(iosDestDir, 'output/ios');
         if (!fs.existsSync(iosOutputDir)) {
           throw new Error('iOS output directory not found after build');
         }
@@ -347,6 +337,50 @@ packageManagers.forEach((pm) => {
     });
   });
 });
+
+function findAndroidApk(artifactsDir: string): string {
+  const cliOutputDir = path.join(artifactsDir, 'output', 'android');
+  if (fs.existsSync(cliOutputDir)) {
+    const apks = fs.readdirSync(cliOutputDir).filter((f) => f.endsWith('.apk'));
+    if (apks.length) {
+      return path.join(cliOutputDir, apks[0]);
+    }
+  }
+
+  const gradleApkRoot = path.join(artifactsDir, 'android', 'app', 'build', 'outputs', 'apk');
+  const gradleApk = findNewestFileUnder(gradleApkRoot, '.apk');
+  if (gradleApk) {
+    return gradleApk;
+  }
+
+  throw new Error(
+    `No APK found under ${cliOutputDir} or ${gradleApkRoot}. ` +
+      'The CLI may have been stopped before copying the artifact to output/android.'
+  );
+}
+
+function findNewestFileUnder(dir: string, extension: string): string | undefined {
+  if (!fs.existsSync(dir)) return undefined;
+
+  let newest: { path: string; mtime: number } | undefined;
+
+  const walk = (current: string) => {
+    for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+      const fullPath = path.join(current, entry.name);
+      if (entry.isDirectory()) {
+        walk(fullPath);
+      } else if (entry.name.endsWith(extension)) {
+        const mtime = fs.statSync(fullPath).mtimeMs;
+        if (!newest || mtime > newest.mtime) {
+          newest = { path: fullPath, mtime };
+        }
+      }
+    }
+  };
+
+  walk(dir);
+  return newest?.path;
+}
 
 function ensureAndroidLocalProperties(
   projectPath: string,

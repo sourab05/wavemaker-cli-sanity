@@ -1,6 +1,7 @@
 import { Browser } from 'webdriverio';
 import { BasePage } from './BasePage';
 import { createLogger } from '../utils/Logger';
+import { getWebPreviewXPath } from '../utils/app-verification';
 
 const log = createLogger('WebPreviewPage');
 
@@ -10,8 +11,7 @@ export class WebPreviewPage extends BasePage {
   }
 
   private get navbarTitleXPath() {
-    const title = process.env.WEB_PREVIEW_TITLE || 'Title';
-    return `//h1[normalize-space()='${title}']`;
+    return getWebPreviewXPath();
   }
 
   get navbarTitle() {

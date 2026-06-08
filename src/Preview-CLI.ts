@@ -9,6 +9,7 @@ import dotenv from 'dotenv';
 import { getPreviewCLIConfig, getPreviewUrl } from './config';
 import { runCommand } from './utils/run-command';
 import { getCliVariant } from './utils/cli-variant';
+import { getAppVerificationSelectors, getWebPreviewXPath } from './utils/app-verification';
 
 dotenv.config();
 
@@ -121,7 +122,8 @@ describe('WM CLI Sync Command and RUN Web Preview Command', function () {
 
       // 4. Verify the accessibility ID in the running Expo Go project.
       console.log('Connected. Waiting for element to be displayed...');
-      const el = await client.$('~menu1_menu_trigger_a');
+      const [appSelector] = getAppVerificationSelectors();
+      const el = await client.$(appSelector);
       await el.waitForDisplayed({ timeout: 60000 }); 
       console.log('✅ Accessibility ID is visible, app is running.');
       await client.deleteSession();
@@ -178,8 +180,7 @@ describe('WM CLI Sync Command and RUN Web Preview Command', function () {
     });
     try {
       await browser.url(previewUrl);
-      const title = process.env.WEB_PREVIEW_TITLE || '';
-      const placeholderXPath = `//h1[normalize-space()='${title}']`;
+      const placeholderXPath = getWebPreviewXPath();
       const el = await browser.$(placeholderXPath);
       await el.waitForDisplayed({ timeout: 30000 });
       console.log('✅ XPath is visible, web preview is working.');

@@ -1,40 +1,33 @@
 import { Browser } from 'webdriverio';
 import { BasePage } from './BasePage';
 import { createLogger } from '../utils/Logger';
+import { getAppVerificationSelectors, waitForAnyDisplayed } from '../utils/app-verification';
 
 const log = createLogger('ExpoGoAppPage');
 
 export class ExpoGoAppPage extends BasePage {
-  private appVerificationId: string;
+  private selectors: string[];
 
-  constructor(driver: Browser, appVerificationId = process.env.APP_VERIFICATION_ID || '~mobile_navbar1_title') {
+  constructor(driver: Browser, appVerificationId?: string) {
     super(driver);
-    this.appVerificationId = appVerificationId;
-  }
-
-  get navbarTitle() {
-    return this.driver.$(this.appVerificationId);
+    if (appVerificationId) {
+      this.selectors = [appVerificationId.replace(/^['"]|['"]$/g, '').trim()];
+    } else {
+      this.selectors = getAppVerificationSelectors();
+    }
   }
 
   async waitForAppToLoad(timeout = 60000): Promise<void> {
     log.info(`Waiting for Expo Go app to load (timeout: ${timeout}ms)...`);
-    const el = await this.navbarTitle;
-    await el.waitForDisplayed({ timeout });
-    log.success('Expo Go app loaded');
+    const matched = await waitForAnyDisplayed(this.driver, this.selectors, timeout);
+    log.success(`Expo Go app loaded (matched: ${matched})`);
   }
 
   async verifyAppRunning(timeout = 60000): Promise<boolean> {
-    log.info(`Verifying Expo Go app (element: ${this.appVerificationId})...`);
+    log.info(`Verifying Expo Go app (selectors: ${this.selectors.join(' | ')})...`);
     try {
-      const el = await this.navbarTitle;
-      await el.waitForDisplayed({ timeout });
-      const isDisplayed = await el.isDisplayed();
-
-      if (!isDisplayed) {
-        throw new Error(`Element ${this.appVerificationId} found but not visible`);
-      }
-
-      log.success('Expo Go app verification passed');
+      const matched = await waitForAnyDisplayed(this.driver, this.selectors, timeout);
+      log.success(`Expo Go app verification passed (matched: ${matched})`);
       return true;
     } catch (error: any) {
       log.error(`Expo Go app verification failed: ${error.message}`);

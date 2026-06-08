@@ -19,18 +19,33 @@ pipeline {
         )
         string(
             name: 'APP_PACKAGE',
-            defaultValue: 'com.test3',
+            defaultValue: 'com.wavemaker.styleworkspaceautomation',
             description: 'Android app package / bundle id (must match Studio project)'
         )
         string(
             name: 'APP_NAME',
-            defaultValue: 'test3',
+            defaultValue: 'StyleWorkSpaceAutomation',
             description: 'App name for wm_rn_config.json'
+        )
+        string(
+            name: 'APP_VERIFICATION_ID',
+            defaultValue: '~button_link_caption',
+            description: 'Expo Go / native build accessibility id to verify app loaded'
+        )
+        string(
+            name: 'WEB_PREVIEW_XPATH',
+            defaultValue: "//div[@aria-label='page_title_label_caption']",
+            description: 'Web preview XPath to verify page loaded'
         )
         string(
             name: 'S3_VERSION',
             defaultValue: 'WM-AI 1.0.0_BETA_RC4',
             description: 'S3 release folder under react_native/releases/<S3_VERSION>/ (e.g. WM-AI 1.0.0_BETA_RC4, 12.0.0)'
+        )
+        string(
+            name: 'RN_ZIP_DOWNLOAD_URL',
+            defaultValue: 'https://stage-platform.wavemaker.ai/file-service/49ca1211668a44feb770620b5a8d936a',
+            description: 'Fallback native-mobile ZIP (file-service URL or id) when Studio build/polling fails'
         )
     }
 
@@ -63,6 +78,8 @@ pipeline {
         WM_NPM_REGISTRY = 'https://repository.wavemaker.com/repository/wavemaker-npm-repo/'
 
         RN_BUILD_PROFILE = 'development'
+        RN_ZIP_DOWNLOAD_URL = "${params.RN_ZIP_DOWNLOAD_URL}"
+        RN_BUILD_EMPTY_JOBS_POLL_LIMIT = '15'
 
         // 2x local defaults: BUILD 45→90 min, INSTALL 5→10 min
         BUILD_TIMEOUT   = '5400000'
@@ -74,6 +91,8 @@ pipeline {
         PACKAGE_MANAGER = "${params.PKG_MANAGER}"
         APP_PACKAGE     = "${params.APP_PACKAGE}"
         APP_NAME        = "${params.APP_NAME}"
+        APP_VERIFICATION_ID = "${params.APP_VERIFICATION_ID}"
+        WEB_PREVIEW_XPATH   = "${params.WEB_PREVIEW_XPATH}"
     }
 
     stages {
@@ -234,6 +253,15 @@ pipeline {
                                 gradle --version
                                 echo "ANDROID_HOME=\${ANDROID_HOME}"
                             fi
+
+                            echo "--- RN ZIP env (masked) ---"
+                            echo "STUDIO_URL=${STUDIO_URL}"
+                            echo "WM_PROJECT_ID prefix: \${WM_PROJECT_ID:0:8}..."
+                            echo "STUDIO_PROJECT_ID prefix: \${STUDIO_PROJECT_ID:0:8}..."
+                            echo "RN_ZIP_DOWNLOAD_URL set: \${RN_ZIP_DOWNLOAD_URL:+yes}"
+                            echo "RN_BUILD_EMPTY_JOBS_POLL_LIMIT=\${RN_BUILD_EMPTY_JOBS_POLL_LIMIT:-12}"
+                            echo "APP_VERIFICATION_ID=\${APP_VERIFICATION_ID}"
+                            echo "WEB_PREVIEW_XPATH=\${WEB_PREVIEW_XPATH}"
 
                             rm -rf allure-results allure-report
 

@@ -89,7 +89,7 @@ packageManagers.forEach((pm) => {
     }
 
     it('should run sync command and capture the Expo project path', async function () {
-      this.timeout(5 * 60 * 1000 + 360000);
+      this.timeout(20 * 60 * 1000);
       await ensureSetup();
 
       const projectRootFolder = path.join(config.baseFolder, 'CliApp');
@@ -150,7 +150,7 @@ packageManagers.forEach((pm) => {
         await appiumService.start();
 
         log.step(2, 4, 'Connecting to Expo Go via Appium...');
-        await emulatorService.ensureExpoGoInstalled();
+        emulatorService.ensureExpoGoInstalled(generatedProjectPath);
 
         client = await DriverFactory.createAppiumSession({
           platformName: 'Android',

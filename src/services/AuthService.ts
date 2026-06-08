@@ -4,6 +4,32 @@ import { createLogger } from '../utils/Logger';
 
 const log = createLogger('AuthService');
 
+function isRetryablePreviewUrlError(error: unknown): boolean {
+  if (axios.isAxiosError(error)) {
+    const status = error.response?.status;
+    if (status && [408, 429, 500, 502, 503, 504].includes(status)) return true;
+    const code = error.code;
+    if (code && /ECONNRESET|ETIMEDOUT|ECONNABORTED|ENOTFOUND|EAI_AGAIN/i.test(code)) return true;
+  }
+
+  const message = error instanceof Error ? error.message : String(error);
+  return /internal server error|timeout|timed out|503|502|504|500|429|econnreset|etimedout|socket hang up/i.test(
+    message
+  );
+}
+
+function getPreviewUrlMaxRetries(): number {
+  return Math.max(1, parseInt(process.env.PREVIEW_URL_MAX_RETRIES || '3', 10));
+}
+
+function getPreviewUrlRetryDelayMs(): number {
+  return parseInt(process.env.PREVIEW_URL_RETRY_DELAY_MS || '15000', 10);
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export class AuthService {
   private baseUrl: string;
 
@@ -48,31 +74,56 @@ export class AuthService {
   async getPreviewUrl(projectId: string, authCookie: string): Promise<string> {
     const previewApiUrl = `${this.baseUrl}/studio/services/projects/${projectId}/deployment/inplaceDeploy`;
     const cookieHeader = `auth_cookie=${authCookie.split('=')[1]}`;
+    const maxAttempts = getPreviewUrlMaxRetries();
+    let lastError: Error | undefined;
 
     log.info(`Fetching preview URL for project ${projectId}...`);
 
-    try {
-      const response = await axios.post(previewApiUrl, {}, {
-        headers: {
-          Accept: 'application/json',
-          'Content-Type': 'application/json',
-          Cookie: cookieHeader,
-        },
-      });
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        if (attempt > 1) {
+          log.warn(`Retrying preview URL fetch (attempt ${attempt}/${maxAttempts})...`);
+        }
 
-      if (response.status !== 200 || !response.data.result) {
-        throw new Error(`Unexpected response: status=${response.status}`);
+        const response = await axios.post(previewApiUrl, {}, {
+          headers: {
+            Accept: 'application/json',
+            'Content-Type': 'application/json',
+            Cookie: cookieHeader,
+          },
+        });
+
+        if (response.status !== 200 || !response.data.result) {
+          throw new Error(`Unexpected response: status=${response.status}`);
+        }
+
+        const resultUrl = response.data.result;
+        const previewUrl = resultUrl.startsWith('http') ? resultUrl : `https:${resultUrl}`;
+
+        log.success(`Preview URL obtained: ${previewUrl}`);
+        return previewUrl;
+      } catch (error: unknown) {
+        lastError =
+          error instanceof Error
+            ? error
+            : new Error(`Failed to retrieve preview URL for project ${projectId}`);
+
+        const status = axios.isAxiosError(error) ? error.response?.status : undefined;
+        const detail = status ? `HTTP ${status}: ${lastError.message}` : lastError.message;
+        log.error(`Preview URL fetch attempt ${attempt}/${maxAttempts} failed: ${detail}`);
+
+        const retryable = isRetryablePreviewUrlError(error);
+        if (!retryable || attempt >= maxAttempts) {
+          throw new Error(`Failed to retrieve preview URL for project ${projectId}: ${detail}`);
+        }
+
+        const delayMs = getPreviewUrlRetryDelayMs();
+        log.warn(`Transient Studio error; waiting ${delayMs / 1000}s before retry...`);
+        await sleep(delayMs);
       }
-
-      const resultUrl = response.data.result;
-      const previewUrl = resultUrl.startsWith('http') ? resultUrl : `https:${resultUrl}`;
-
-      log.success(`Preview URL obtained: ${previewUrl}`);
-      return previewUrl;
-    } catch (error: any) {
-      log.error(`Failed to get preview URL: ${error.message}`);
-      throw new Error(`Failed to retrieve preview URL for project ${projectId}: ${error.message}`);
     }
+
+    throw lastError ?? new Error(`Failed to retrieve preview URL for project ${projectId}`);
   }
 
   extractCookieValue(authCookie: string): string {

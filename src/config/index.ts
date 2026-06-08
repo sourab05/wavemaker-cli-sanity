@@ -48,7 +48,7 @@ export function getPreviewCLIConfig(): PreviewCLIConfig {
     baseFolder: path.join(os.homedir(), '.wm-reactnative-cli', 'wm-projects'),
     auth: { username, password },
     loginUrl: process.env.LOGIN_URL || `${studioUrl}/login/authenticate`,
-    syncTimeout: parseInt(process.env.SYNC_TIMEOUT || '300000', 10),
+    syncTimeout: parseInt(process.env.SYNC_TIMEOUT || '900000', 10),
     appStartTimeout: parseInt(process.env.APP_START_TIMEOUT || '150000', 10),
     setupTimeout: 60 * 1000,
   };

@@ -1,19 +1,20 @@
 import { Browser } from 'webdriverio';
 import { BasePage } from './BasePage';
 import { createLogger } from '../utils/Logger';
+import { getAppVerificationSelectors, waitForAnyDisplayed } from '../utils/app-verification';
 
 const log = createLogger('NativeAppPage');
 
 export class NativeAppPage extends BasePage {
-  private accessibilityId: string;
+  private selectors: string[];
 
-  constructor(driver: Browser, accessibilityId = process.env.APP_VERIFICATION_ID || '~mobile_navbar1_title') {
+  constructor(driver: Browser, accessibilityId?: string) {
     super(driver);
-    this.accessibilityId = accessibilityId;
-  }
-
-  get navbarTitle() {
-    return this.driver.$(this.accessibilityId);
+    if (accessibilityId) {
+      this.selectors = [accessibilityId.replace(/^['"]|['"]$/g, '').trim()];
+    } else {
+      this.selectors = getAppVerificationSelectors();
+    }
   }
 
   async activateApp(appPackage: string): Promise<void> {
@@ -22,17 +23,10 @@ export class NativeAppPage extends BasePage {
   }
 
   async verifyAppLaunched(timeout = 60000): Promise<boolean> {
-    log.info(`Verifying app launched (looking for: ${this.accessibilityId})...`);
+    log.info(`Verifying app launched (selectors: ${this.selectors.join(' | ')})...`);
     try {
-      const el = await this.navbarTitle;
-      await el.waitForDisplayed({ timeout });
-      const isDisplayed = await el.isDisplayed();
-
-      if (!isDisplayed) {
-        throw new Error(`Element ${this.accessibilityId} found but not visible`);
-      }
-
-      log.success('App verification passed - UI element is visible');
+      const matched = await waitForAnyDisplayed(this.driver, this.selectors, timeout);
+      log.success(`App verification passed (matched: ${matched})`);
       return true;
     } catch (error: any) {
       log.error(`App verification failed: ${error.message}`);
