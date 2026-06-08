@@ -27,6 +27,11 @@ pipeline {
             defaultValue: 'test3',
             description: 'App name for wm_rn_config.json'
         )
+        string(
+            name: 'S3_VERSION',
+            defaultValue: 'WM-AI 1.0.0_BETA_RC4',
+            description: 'S3 release folder under react_native/releases/<S3_VERSION>/ (e.g. WM-AI 1.0.0_BETA_RC4, 12.0.0)'
+        )
     }
 
     tools {
@@ -46,6 +51,9 @@ pipeline {
         AWS_SECRET_ACCESS_KEY = credentials('AWS_SECRET_ACCESS_KEY')
         S3_REPORT_BUCKET      = credentials('S3_BUCKET_NAME')
         AWS_REGION            = 'us-west-2'
+        S3_VERSION            = "${params.S3_VERSION}"
+        S3_REPORT_PROJECT     = 'Stage-AI-CLI'
+        S3_REPORT_FILENAME    = 'stage-ai-cli.html'
 
         STUDIO_URL      = credentials('WM_CLI_STUDIO_URL')
         STUDIO_BASE_URL = credentials('WM_CLI_STUDIO_URL')
@@ -62,6 +70,7 @@ pipeline {
 
         RUN_LOCAL       = 'false'
         HEADLESS        = 'true'
+        SYNC_TIMEOUT    = '900000'
         PACKAGE_MANAGER = "${params.PKG_MANAGER}"
         APP_PACKAGE     = "${params.APP_PACKAGE}"
         APP_NAME        = "${params.APP_NAME}"
@@ -285,17 +294,19 @@ pipeline {
                 sh '''
                     if [ -f "allure-report/index.html" ]; then
                         CLI_VERSION=$(${env.CLI_BINARY} --version 2>/dev/null || echo 'unknown')
-                        S3_VERSION="${S3_REPORT_VERSION:-$CLI_VERSION}"
-                        S3_PATH="react_native/releases/${S3_VERSION}/Cli/"
-                        S3_DEST="s3://${S3_REPORT_BUCKET}/${S3_PATH}cli.html"
+                        S3_RELEASE_VERSION="${S3_VERSION:-$CLI_VERSION}"
+                        S3_PROJECT="${S3_REPORT_PROJECT:-Cli}"
+                        S3_FILENAME="${S3_REPORT_FILENAME:-cli.html}"
+                        S3_PATH="react_native/releases/${S3_RELEASE_VERSION}/${S3_PROJECT}/"
+                        S3_DEST="s3://${S3_REPORT_BUCKET}/${S3_PATH}${S3_FILENAME}"
 
-                        echo "--- Uploading report to S3: ${S3_DEST} ---"
+                        echo "--- Uploading report to S3 (S3_VERSION=${S3_RELEASE_VERSION}) ---"
                         aws s3 cp allure-report/index.html "$S3_DEST" \
                             --region "$AWS_REGION" \
                             --acl public-read \
                             --content-type "text/html"
 
-                        REPORT_URL="https://${S3_REPORT_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_PATH}cli.html"
+                        REPORT_URL="https://${S3_REPORT_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_PATH}${S3_FILENAME}"
                         echo "--- Report uploaded: ${REPORT_URL} ---"
                     else
                         echo "--- Skipping S3 upload (no report found) ---"
