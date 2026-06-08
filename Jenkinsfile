@@ -44,8 +44,8 @@ pipeline {
         )
         string(
             name: 'RN_ZIP_DOWNLOAD_URL',
-            defaultValue: 'https://stage-platform.wavemaker.ai/file-service/49ca1211668a44feb770620b5a8d936a',
-            description: 'Fallback native-mobile ZIP (file-service URL or id) when Studio build/polling fails'
+            defaultValue: '',
+            description: 'Optional last-resort ZIP (file-service URL or id). Leave empty to resolve nativeMobileZipId dynamically from Studio jobs API.'
         )
     }
 
