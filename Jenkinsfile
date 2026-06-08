@@ -52,7 +52,7 @@ pipeline {
         S3_REPORT_BUCKET      = credentials('S3_BUCKET_NAME')
         AWS_REGION            = 'us-west-2'
         S3_VERSION            = "${params.S3_VERSION}"
-        S3_REPORT_PROJECT     = 'Stage-AI-CLI'
+        S3_REPORT_PROJECT     = 'Cli'
         S3_REPORT_FILENAME    = 'stage-ai-cli.html'
 
         STUDIO_URL      = credentials('WM_CLI_STUDIO_URL')
