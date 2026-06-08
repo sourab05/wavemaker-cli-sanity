@@ -143,7 +143,7 @@ pipeline {
                     echo "  Package:   ${env.CLI_PKG_NAME}"
                     echo "  Binary:    ${env.CLI_BINARY}"
                     echo "  Branch:    ${env.EFFECTIVE_BRANCH}"
-                    echo "  Studio:    ${env.STUDIO_URL}"
+                    echo "  Studio:    \$STUDIO_URL"
                 """
             }
         }
@@ -255,10 +255,10 @@ pipeline {
                             fi
 
                             echo "--- RN ZIP env (masked) ---"
-                            echo "STUDIO_URL=${STUDIO_URL}"
-                            echo "WM_PROJECT_ID prefix: \${WM_PROJECT_ID:0:8}..."
-                            echo "STUDIO_PROJECT_ID prefix: \${STUDIO_PROJECT_ID:0:8}..."
-                            echo "RN_ZIP_DOWNLOAD_URL set: \${RN_ZIP_DOWNLOAD_URL:+yes}"
+                            echo "STUDIO_URL=\${STUDIO_URL}"
+                            echo "WM_PROJECT_ID prefix: \$(echo \"\$WM_PROJECT_ID\" | cut -c1-8)..."
+                            echo "STUDIO_PROJECT_ID prefix: \$(echo \"\$STUDIO_PROJECT_ID\" | cut -c1-8)..."
+                            if [ -n "\$RN_ZIP_DOWNLOAD_URL" ]; then echo "RN_ZIP_DOWNLOAD_URL set: yes"; else echo "RN_ZIP_DOWNLOAD_URL set: no"; fi
                             echo "RN_BUILD_EMPTY_JOBS_POLL_LIMIT=\${RN_BUILD_EMPTY_JOBS_POLL_LIMIT:-12}"
                             echo "APP_VERIFICATION_ID=\${APP_VERIFICATION_ID}"
                             echo "WEB_PREVIEW_XPATH=\${WEB_PREVIEW_XPATH}"
