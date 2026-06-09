@@ -293,66 +293,53 @@ pipeline {
             }
         }
 
-        stage('Generate Report') {
-            when { expression { return true } }
-            steps {
-                sh '''
-                    if command -v allure >/dev/null 2>&1 && [ -d "allure-results" ]; then
-                        echo "--- Generating Allure report ---"
-                        allure generate allure-results --clean --single-file -o allure-report
-                        echo "--- Report generated at allure-report/index.html ---"
-                    else
-                        echo "--- Skipping Allure report (allure CLI not found or no results) ---"
-                    fi
-                '''
-            }
-            post {
-                always {
-                    archiveArtifacts artifacts: 'allure-report/**', allowEmptyArchive: true
-                    archiveArtifacts artifacts: 'allure-results/**', allowEmptyArchive: true
+    post {
+        always {
+            sh '''
+                if command -v allure >/dev/null 2>&1 && [ -d "allure-results" ]; then
+                    echo "--- Generating Allure report ---"
+                    allure generate allure-results --clean --single-file -o allure-report
+                    echo "--- Report generated at allure-report/index.html ---"
+                else
+                    echo "--- Skipping Allure report (allure CLI not found or no results) ---"
+                fi
+            '''
+            archiveArtifacts artifacts: 'allure-report/**', allowEmptyArchive: true
+            archiveArtifacts artifacts: 'allure-results/**', allowEmptyArchive: true
+            script {
+                if (env.S3_REPORT_BUCKET?.trim()) {
+                    sh """
+                        if [ -f "allure-report/index.html" ]; then
+                            CLI_VERSION=\$(${env.CLI_BINARY} --version 2>/dev/null || echo 'unknown')
+                            S3_RELEASE_VERSION="\${S3_VERSION:-\$CLI_VERSION}"
+                            S3_PROJECT="\${S3_REPORT_PROJECT:-Cli}"
+                            S3_FILENAME="\${S3_REPORT_FILENAME:-cli.html}"
+                            S3_PATH="react_native/releases/\${S3_RELEASE_VERSION}/\${S3_PROJECT}/"
+                            S3_DEST="s3://\${S3_REPORT_BUCKET}/\${S3_PATH}\${S3_FILENAME}"
+
+                            echo "--- Uploading report to S3 (S3_VERSION=\${S3_RELEASE_VERSION}) ---"
+                            aws s3 cp allure-report/index.html "\$S3_DEST" \\
+                                --region "\$AWS_REGION" \\
+                                --acl public-read \\
+                                --content-type "text/html"
+
+                            REPORT_URL="https://\${S3_REPORT_BUCKET}.s3.\${AWS_REGION}.amazonaws.com/\${S3_PATH}\${S3_FILENAME}"
+                            echo "--- Report uploaded: \${REPORT_URL} ---"
+                        else
+                            echo "--- Skipping S3 upload (no report found) ---"
+                        fi
+                    """
+                } else {
+                    echo '--- Skipping S3 upload (S3_REPORT_BUCKET not set) ---'
                 }
             }
+            echo "Run complete. Platform: ${env.CLI_PLATFORM}, Branch: ${env.EFFECTIVE_BRANCH}, Target: ${params.RUN_TARGET}, PM: ${params.PKG_MANAGER}"
         }
-
-        stage('Upload Report to S3') {
-            when {
-                expression { return env.S3_REPORT_BUCKET?.trim() }
-            }
-            steps {
-                sh '''
-                    if [ -f "allure-report/index.html" ]; then
-                        CLI_VERSION=$(${env.CLI_BINARY} --version 2>/dev/null || echo 'unknown')
-                        S3_RELEASE_VERSION="${S3_VERSION:-$CLI_VERSION}"
-                        S3_PROJECT="${S3_REPORT_PROJECT:-Cli}"
-                        S3_FILENAME="${S3_REPORT_FILENAME:-cli.html}"
-                        S3_PATH="react_native/releases/${S3_RELEASE_VERSION}/${S3_PROJECT}/"
-                        S3_DEST="s3://${S3_REPORT_BUCKET}/${S3_PATH}${S3_FILENAME}"
-
-                        echo "--- Uploading report to S3 (S3_VERSION=${S3_RELEASE_VERSION}) ---"
-                        aws s3 cp allure-report/index.html "$S3_DEST" \
-                            --region "$AWS_REGION" \
-                            --acl public-read \
-                            --content-type "text/html"
-
-                        REPORT_URL="https://${S3_REPORT_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_PATH}${S3_FILENAME}"
-                        echo "--- Report uploaded: ${REPORT_URL} ---"
-                    else
-                        echo "--- Skipping S3 upload (no report found) ---"
-                    fi
-                '''
-            }
-        }
-    }
-
-    post {
         success {
             echo "Pipeline completed successfully — ${env.CLI_PLATFORM} CLI, branch: ${env.EFFECTIVE_BRANCH}"
         }
         failure {
             echo "Pipeline failed — ${env.CLI_PLATFORM} CLI, branch: ${env.EFFECTIVE_BRANCH} — check archived reports."
-        }
-        always {
-            echo "Run complete. Platform: ${env.CLI_PLATFORM}, Branch: ${env.EFFECTIVE_BRANCH}, Target: ${params.RUN_TARGET}, PM: ${params.PKG_MANAGER}"
         }
     }
 }

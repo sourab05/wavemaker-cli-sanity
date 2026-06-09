@@ -15,6 +15,7 @@ import { getCliVariant } from '../../src/utils/cli-variant';
 import { EmulatorService } from '../../src/services/EmulatorService';
 import { AppiumService } from '../../src/services/AppiumService';
 import { RnProjectManager, shouldDownloadRnProjectFromStudio } from '../../src/services/RnProjectManager';
+import { resolveBrowserStackAppUrl } from '../../src/services/BrowserStackService';
 
 dotenv.config();
 
@@ -463,12 +464,17 @@ async function verifyAndroidOnBrowserStack(
   const androidDeviceName = process.env.BS_ANDROID_DEVICE_NAME || 'Google Pixel 8';
   const androidPlatformVersion = (process.env.BS_ANDROID_PLATFORM_VERSION || '14').trim();
 
+  const credentials = { username, accessKey };
+
+  const appUrl = await resolveBrowserStackAppUrl(apkPath, credentials);
+  log.info(`BrowserStack app capability: ${appUrl}`);
+
   const capabilities: AppiumCapabilities = {
     platformName: 'Android',
     'appium:deviceName': androidDeviceName,
     'appium:platformVersion': androidPlatformVersion,
     'appium:automationName': 'UiAutomator2',
-    'appium:app': apkPath,
+    'appium:app': appUrl,
   };
 
   const bstackOptions: BrowserStackOptions = {
@@ -482,10 +488,7 @@ async function verifyAndroidOnBrowserStack(
   let client: Browser | undefined;
   try {
     log.info('Verifying Android app on BrowserStack...');
-    client = await DriverFactory.createBrowserStackSession(capabilities, bstackOptions, {
-      username,
-      accessKey,
-    });
+    client = await DriverFactory.createBrowserStackSession(capabilities, bstackOptions, credentials);
 
     const nativeApp = new NativeAppPage(client, config.appVerificationId);
     await nativeApp.verifyAppLaunched();
