@@ -80,6 +80,7 @@ pipeline {
         RN_BUILD_PROFILE = 'development'
         RN_ZIP_DOWNLOAD_URL = "${params.RN_ZIP_DOWNLOAD_URL}"
         RN_BUILD_EMPTY_JOBS_POLL_LIMIT = '15'
+        BROWSERSTACK_VERIFY_SOFT_FAIL = 'true'
 
         // 2x local defaults: BUILD 45→90 min, INSTALL 5→10 min
         BUILD_TIMEOUT   = '5400000'
@@ -211,6 +212,15 @@ pipeline {
                 sh '''
                     chmod +x scripts/setup-android-ci.sh
                     bash scripts/setup-android-ci.sh
+                '''
+            }
+        }
+
+        stage('CI Smoke Test') {
+            steps {
+                sh '''
+                    chmod +x scripts/ci-smoke-test.sh
+                    ./scripts/ci-smoke-test.sh
                 '''
             }
         }

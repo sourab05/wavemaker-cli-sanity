@@ -20,6 +20,16 @@ describe('AppChef CLI Version Compatibility', function () {
   this.timeout(30 * 1000);
 
   it('should have the latest CLI version satisfy the AppChef dependency range', async function () {
+    if (variant.platform === 'ai') {
+      log.info('Skipping AppChef check for AI CLI (AppChef targets classic @wavemaker/wm-reactnative-cli)');
+      this.skip();
+    }
+
+    if (process.env.SKIP_APPCHEF_CHECK === 'true') {
+      log.info('Skipping AppChef check (SKIP_APPCHEF_CHECK=true)');
+      this.skip();
+    }
+
     log.separator('AppChef CLI Version Compatibility');
     log.info(`CLI variant: ${variant.platform} (${CLI_PACKAGE_NAME})`);
     log.info('Fetching CLI and AppChef package.json from GitHub...');

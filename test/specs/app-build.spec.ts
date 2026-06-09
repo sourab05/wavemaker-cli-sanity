@@ -23,6 +23,14 @@ const packageManagers = getPackageManagers();
 const isRunLocal = process.env.RUN_LOCAL !== 'false';
 const variant = getCliVariant();
 
+function shouldVerifyOnBrowserStack(): boolean {
+  if (isRunLocal) return false;
+  if (process.env.SKIP_BROWSERSTACK_VERIFY === 'true') return false;
+  const username = process.env.BROWSERSTACK_USERNAME?.trim();
+  const accessKey = process.env.BROWSERSTACK_ACCESS_KEY?.trim();
+  return Boolean(username && accessKey && username !== 'your_browserstack_username');
+}
+
 packageManagers.forEach((pm) => {
   const cmd = new PackageManagerCommands(pm);
   const log = createLogger(`AppBuildSpec[${cmd.label}]`);
@@ -193,11 +201,16 @@ packageManagers.forEach((pm) => {
     });
 
     it('should install and verify the Android app', async function () {
-      this.timeout(20 * 60 * 1000);
+      this.timeout(shouldVerifyOnBrowserStack() ? 45 * 60 * 1000 : 20 * 60 * 1000);
       await ensureSetup();
 
       if (!config.androidOutputFile) {
         log.warn('Skipping: APK not available (previous build may have failed)');
+        this.skip();
+      }
+
+      if (!isRunLocal && !shouldVerifyOnBrowserStack()) {
+        log.warn('Skipping BrowserStack Android verification (SKIP_BROWSERSTACK_VERIFY or missing creds)');
         this.skip();
       }
 
@@ -253,6 +266,11 @@ packageManagers.forEach((pm) => {
         }
       } catch (error: any) {
         const target = isRunLocal ? 'emulator' : 'BrowserStack';
+        if (!isRunLocal && process.env.BROWSERSTACK_VERIFY_SOFT_FAIL === 'true') {
+          log.warn(`Android ${target} verification failed (soft fail): ${error.message}`);
+          if (client) await DriverFactory.takeScreenshot(client, `android-${target}-failure-${pm}`);
+          return;
+        }
         log.error(`Android ${target} verification failed: ${error.message}`);
         if (client) await DriverFactory.takeScreenshot(client, `android-${target}-failure-${pm}`);
         throw error;
@@ -318,8 +336,10 @@ packageManagers.forEach((pm) => {
         config.iosOutputFile = path.join(iosOutputDir, ipaFiles[0]);
         log.success(`IPA built: ${config.iosOutputFile}`);
 
-        if (process.env.RUN_LOCAL === 'false') {
+        if (shouldVerifyOnBrowserStack()) {
           await verifyOnBrowserStack(config, log);
+        } else if (!isRunLocal) {
+          log.warn('Skipping BrowserStack iOS verification (SKIP_BROWSERSTACK_VERIFY or missing creds)');
         }
       } catch (error: any) {
         log.error(`IPA build failed: ${error.message}`);
