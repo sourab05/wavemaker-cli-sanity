@@ -33,7 +33,8 @@ export async function uploadReportToS3(
   }
 
   const s3Prefix = options.prefix ?? buildS3PathPrefix();
-  const key = s3Prefix + 'cli.html';
+  const filename = process.env.S3_REPORT_FILENAME?.trim() || 'cli.html';
+  const key = s3Prefix + filename;
 
   const client = new S3Client({ region });
 

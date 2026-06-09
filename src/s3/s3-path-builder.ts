@@ -8,8 +8,8 @@ import { getCliVariant } from '../utils/cli-variant';
  * Fallback: S3_REPORT_VERSION env var, then package.json.
  */
 export function resolveVersion(): string {
-  const envVersion = process.env.S3_REPORT_VERSION;
-  if (envVersion) return envVersion;
+  const envVersion = process.env.S3_REPORT_VERSION || process.env.S3_VERSION;
+  if (envVersion?.trim()) return envVersion.trim();
 
   const variant = getCliVariant();
   try {

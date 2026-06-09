@@ -16,6 +16,7 @@ import { EmulatorService } from '../../src/services/EmulatorService';
 import { AppiumService } from '../../src/services/AppiumService';
 import { RnProjectManager, shouldDownloadRnProjectFromStudio } from '../../src/services/RnProjectManager';
 import { resolveBrowserStackAppUrl } from '../../src/services/BrowserStackService';
+import { ensureNpmRegistry } from '../../src/utils/npm-registry';
 
 dotenv.config();
 
@@ -107,6 +108,9 @@ packageManagers.forEach((pm) => {
 
         const removed = cmd.cleanForInstall(config.projectPath);
         if (removed.length) log.info(`Cleaned for ${cmd.label}: removed ${removed.join(', ')}`);
+
+        ensureNpmRegistry(config.projectPath);
+        log.info('Configured npm registry, then installing dependencies');
 
         const installCmd = cmd.install();
         log.step(step++, totalSteps, `Installing project dependencies (${installCmd})...`);

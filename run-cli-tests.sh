@@ -30,6 +30,13 @@ detect_cli_variant() {
 
 detect_cli_variant
 
+configure_npm_registry() {
+  chmod +x "$SCRIPT_DIR/scripts/configure-npm-registry.sh"
+  "$SCRIPT_DIR/scripts/configure-npm-registry.sh"
+}
+
+configure_npm_registry
+
 echo "--- CLI Platform: $CLI_PLATFORM ---"
 echo "--- CLI Package:  $CLI_PKG_NAME ---"
 echo "--- CLI Binary:   $CLI_BINARY ---"
@@ -102,6 +109,8 @@ git reset --hard "origin/$BRANCH_NAME"
 #   Automation repo: yarn link $CLI_PKG_NAME
 
 link_with_npm() {
+  echo "--- [NPM] Configuring registry for CLI repo ---"
+  "$AUTOMATION_REPO_PATH/scripts/configure-npm-registry.sh" "$CLI_REPO_PATH"
   echo "--- [NPM] Installing CLI dependencies ---"
   rm -f yarn.lock
   npm install
@@ -151,6 +160,9 @@ echo "--- Successfully linked and verified $CLI_BINARY version: $ACTIVE_CLI_VERS
 
 # --- Link CLI in the automation project ---
 cd "$AUTOMATION_REPO_PATH"
+echo "--- Configuring npm registry for automation project ---"
+"$AUTOMATION_REPO_PATH/scripts/configure-npm-registry.sh" "$AUTOMATION_REPO_PATH"
+
 echo "--- Linking automation project to the local CLI (path: $CLI_REPO_PATH) ---"
 
 case "$PKG_MANAGER" in

@@ -1,3 +1,21 @@
+def uploadReportsToS3(Map args = [:]) {
+    def nonFatal = args.nonFatal == true
+    if (!env.S3_REPORT_BUCKET?.trim()) {
+        echo '--- Skipping S3 upload (S3_REPORT_BUCKET not set) ---'
+        return
+    }
+    if (!params.S3_VERSION?.trim()) {
+        echo '--- S3_VERSION is empty — skipping S3 report upload. Set the build parameter to upload under react_native/releases/<version>/Cli/... ---'
+        return
+    }
+    def cmd = 'npx ts-node scripts/generate-and-upload-report.ts'
+    if (nonFatal) {
+        sh "${cmd} || echo \"S3 upload skipped or failed (non-fatal)\""
+    } else {
+        sh cmd
+    }
+}
+
 pipeline {
     agent any
 
@@ -67,6 +85,7 @@ pipeline {
         S3_REPORT_BUCKET      = credentials('S3_BUCKET_NAME')
         AWS_REGION            = 'us-west-2'
         S3_VERSION            = "${params.S3_VERSION}"
+        S3_REPORT_VERSION     = "${params.S3_VERSION}"
         S3_REPORT_PROJECT     = 'Cli'
         S3_REPORT_FILENAME    = 'stage-ai-cli.html'
 
@@ -107,12 +126,8 @@ pipeline {
         stage('Configure NPM Registry') {
             steps {
                 sh '''
-                    echo "--- Configuring WaveMaker npm registry ---"
-                    npm config set registry "${WM_NPM_REGISTRY}"
-                    npm config set @wavemaker:registry "${WM_NPM_REGISTRY}"
-                    npm config set @wavemaker-ai:registry "${WM_NPM_REGISTRY}"
-                    echo "registry=$(npm config get registry)"
-                    echo "@wavemaker:registry=$(npm config get @wavemaker:registry)"
+                    chmod +x scripts/configure-npm-registry.sh
+                    ./scripts/configure-npm-registry.sh
                 '''
             }
         }
@@ -172,6 +187,9 @@ pipeline {
                     git checkout "${env.EFFECTIVE_BRANCH}"
                     git reset --hard "origin/${env.EFFECTIVE_BRANCH}"
 
+                    echo "--- Configuring npm registry for CLI repo ---"
+                    "\${WORKSPACE}/scripts/configure-npm-registry.sh" "\$CLI_REPO_PATH"
+
                     echo "--- Installing CLI dependencies ---"
                     npm install
 
@@ -195,6 +213,9 @@ pipeline {
         stage('Install Dependencies') {
             steps {
                 sh """
+                    echo "--- Configuring npm registry for automation project ---"
+                    ./scripts/configure-npm-registry.sh "\${WORKSPACE}"
+
                     echo "--- Linking CLI in automation project (${env.CLI_PKG_NAME}) ---"
                     npm link ${env.CLI_PKG_NAME}
 
@@ -307,50 +328,34 @@ pipeline {
     post {
         always {
             sh '''
-                if command -v allure >/dev/null 2>&1 && [ -d "allure-results" ]; then
+                if [ -d "allure-results" ] && [ "$(ls -A allure-results 2>/dev/null)" ]; then
                     echo "--- Generating Allure report ---"
-                    allure generate allure-results --clean --single-file -o allure-report
-                    echo "--- Report generated at allure-report/index.html ---"
+                    npx allure generate allure-results --clean --single-file -o allure-report \
+                        || echo "allure generate skipped"
                 else
-                    echo "--- Skipping Allure report (allure CLI not found or no results) ---"
+                    echo "--- Skipping Allure report (no allure-results) ---"
                 fi
             '''
             archiveArtifacts artifacts: 'allure-report/**', allowEmptyArchive: true
             archiveArtifacts artifacts: 'allure-results/**', allowEmptyArchive: true
-            script {
-                if (env.S3_REPORT_BUCKET?.trim()) {
-                    sh """
-                        if [ -f "allure-report/index.html" ]; then
-                            CLI_VERSION=\$(${env.CLI_BINARY} --version 2>/dev/null || echo 'unknown')
-                            S3_RELEASE_VERSION="\${S3_VERSION:-\$CLI_VERSION}"
-                            S3_PROJECT="\${S3_REPORT_PROJECT:-Cli}"
-                            S3_FILENAME="\${S3_REPORT_FILENAME:-cli.html}"
-                            S3_PATH="react_native/releases/\${S3_RELEASE_VERSION}/\${S3_PROJECT}/"
-                            S3_DEST="s3://\${S3_REPORT_BUCKET}/\${S3_PATH}\${S3_FILENAME}"
-
-                            echo "--- Uploading report to S3 (S3_VERSION=\${S3_RELEASE_VERSION}) ---"
-                            aws s3 cp allure-report/index.html "\$S3_DEST" \\
-                                --region "\$AWS_REGION" \\
-                                --acl public-read \\
-                                --content-type "text/html"
-
-                            REPORT_URL="https://\${S3_REPORT_BUCKET}.s3.\${AWS_REGION}.amazonaws.com/\${S3_PATH}\${S3_FILENAME}"
-                            echo "--- Report uploaded: \${REPORT_URL} ---"
-                        else
-                            echo "--- Skipping S3 upload (no report found) ---"
-                        fi
-                    """
-                } else {
-                    echo '--- Skipping S3 upload (S3_REPORT_BUCKET not set) ---'
-                }
-            }
             echo "Run complete. Platform: ${env.CLI_PLATFORM}, Branch: ${env.EFFECTIVE_BRANCH}, Target: ${params.RUN_TARGET}, PM: ${params.PKG_MANAGER}"
         }
         success {
+            script {
+                uploadReportsToS3()
+            }
             echo "Pipeline completed successfully — ${env.CLI_PLATFORM} CLI, branch: ${env.EFFECTIVE_BRANCH}"
         }
         failure {
+            script {
+                uploadReportsToS3(nonFatal: true)
+            }
             echo "Pipeline failed — ${env.CLI_PLATFORM} CLI, branch: ${env.EFFECTIVE_BRANCH} — check archived reports."
+        }
+        unstable {
+            script {
+                uploadReportsToS3(nonFatal: true)
+            }
         }
     }
 }
