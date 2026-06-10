@@ -45,46 +45,7 @@ def runsSecurityScan() {
 // update-notifier v6+ is ESM-only; patch cloned security CLI index.js after npm install (no wm-reactnative-cli repo changes)
 def patchSecurityCliUpdateNotifier() {
     def cliRepoPath = env.SECURITY_CLI_REPO_PATH?.trim() ?: "${env.WORKSPACE}/wm-reactnative-cli-security"
-    sh """
-        CLI_INDEX="${cliRepoPath}/index.js"
-        if [ ! -f "\$CLI_INDEX" ]; then
-            echo "--- Security CLI index.js not found; skipping update-notifier patch ---"
-            exit 0
-        fi
-        node -e "
-const fs = require('fs');
-const path = process.argv[1];
-let source = fs.readFileSync(path, 'utf8');
-if (source.includes('updateNotifierMod')) {
-  return;
-}
-const replacement = [
-  'const pkg = require(\\\\'./package.json\\\\');',
-  'const { canDoAndroidBuild, canDoIosBuild, showConfirmation } = require(\\\\'./src/requirements\\\\');',
-  'try {',
-  '    const updateNotifierMod = require(\\\\'update-notifier\\\\');',
-  '    const updateNotifier = typeof updateNotifierMod === \\\\'function\\\\' ? updateNotifierMod : updateNotifierMod.default;',
-  '    if (updateNotifier) {',
-  '        updateNotifier({',
-  '            pkg: pkg,',
-  '            updateCheckInterval : 60 * 60 * 1000',
-  '        }).notify({',
-  '            defer: false',
-  '        });',
-  '    }',
-  '} catch {',
-  '    // update-notifier v6+ is ESM-only on some Node versions; skip version notify',
-  '}',
-].join('\\\\n');
-const pattern = /const updateNotifier = require\\\\('update-notifier'\\\\)(?:\\\\.default)?;\\\\nconst pkg = require\\\\('\\\\.\\\\/package\\\\.json'\\\\);\\\\nconst \\\\{ canDoAndroidBuild, canDoIosBuild, showConfirmation \\\\} = require\\\\('\\\\.\\\\/src\\\\/requirements'\\\\);\\\\nupdateNotifier\\\\(\\\\{[\\\\s\\\\S]*?\\\\}\\\\)\\\\.notify\\\\(\\\\{[\\\\s\\\\S]*?\\\\}\\\\);/;
-if (!pattern.test(source)) {
-  console.warn('--- Could not find update-notifier block to patch in index.js ---');
-  return;
-}
-fs.writeFileSync(path, source.replace(pattern, replacement));
-console.log('--- Patched update-notifier in security CLI index.js ---');
-        " "\$CLI_INDEX"
-    """
+    sh "node scripts/patch-security-cli-update-notifier.js '${cliRepoPath}/index.js'"
 }
 
 def isSecurityRun() {
