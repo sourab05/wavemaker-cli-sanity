@@ -16,6 +16,28 @@ def uploadReportsToS3(Map args = [:]) {
     }
 }
 
+def uploadSecurityReportsToS3(Map args = [:]) {
+    def nonFatal = args.nonFatal == true
+    if (!env.S3_REPORT_BUCKET?.trim()) {
+        echo '--- Skipping security S3 upload (S3_REPORT_BUCKET not set) ---'
+        return
+    }
+    if (!params.S3_VERSION?.trim()) {
+        echo '--- S3_VERSION is empty — skipping security report upload ---'
+        return
+    }
+    def cmd = 'npx ts-node scripts/generate-and-upload-security-report.ts'
+    if (nonFatal) {
+        sh "${cmd} || echo \"Security S3 upload skipped or failed (non-fatal)\""
+    } else {
+        sh cmd
+    }
+}
+
+def isSecurityRun() {
+    return params.RUN_TARGET == 'Security Vulnerabilities'
+}
+
 pipeline {
     agent any
 
@@ -27,8 +49,13 @@ pipeline {
         )
         choice(
             name: 'RUN_TARGET',
-            choices: ['All Tests', 'AppChef Version', 'Sync & Web Preview', 'App Build'],
+            choices: ['All Tests', 'AppChef Version', 'Sync & Web Preview', 'App Build', 'Security Vulnerabilities'],
             description: 'Which test suite to run'
+        )
+        string(
+            name: 'CLI_REPO_URL',
+            defaultValue: '',
+            description: 'Optional CLI git repo URL. Leave empty for defaults (wavemaker repo, or Karthik7bk fork for Security Vulnerabilities).'
         )
         choice(
             name: 'PKG_MANAGER',
@@ -113,6 +140,11 @@ pipeline {
         APP_NAME        = "${params.APP_NAME}"
         APP_VERIFICATION_ID = "${params.APP_VERIFICATION_ID}"
         WEB_PREVIEW_XPATH   = "${params.WEB_PREVIEW_XPATH}"
+
+        SECURITY_CLI_REPO_URL = 'https://github.com/Karthik7bk/wm-reactnative-cli.git'
+        SECURITY_CLI_BRANCH = 'SecurityVulnerabilities'
+        SECURITY_CLI_BINARY   = 'wm-reactnative'
+        SECURITY_SCAN_TIMEOUT = '2700000'
     }
 
     stages {
@@ -148,10 +180,22 @@ pipeline {
                         env.CLI_DEFAULT_BRANCH = 'main'
                     }
 
-                    // Use variant default branch unless user explicitly changed CLI_BRANCH
-                    env.EFFECTIVE_BRANCH = (params.CLI_BRANCH == 'main')
-                        ? env.CLI_DEFAULT_BRANCH
-                        : params.CLI_BRANCH
+                    if (isSecurityRun()) {
+                        env.CLI_REPO_URL = params.CLI_REPO_URL?.trim() ?: env.SECURITY_CLI_REPO_URL
+                        env.CLI_PKG_NAME = '@wavemaker/wm-reactnative-cli'
+                        env.CLI_BINARY = env.SECURITY_CLI_BINARY
+                        env.EFFECTIVE_BRANCH = (params.CLI_BRANCH == 'main')
+                            ? env.SECURITY_CLI_BRANCH
+                            : params.CLI_BRANCH
+                        env.S3_REPORT_PROJECT = 'SecurityVulnerablilities'
+                        env.S3_REPORT_FILENAME = 'security-vulnerabilities.html'
+                        env.SECURITY_CLI_BINARY = env.SECURITY_CLI_BINARY
+                    } else {
+                        env.CLI_REPO_URL = params.CLI_REPO_URL?.trim() ?: 'https://github.com/wavemaker/wm-reactnative-cli.git'
+                        env.EFFECTIVE_BRANCH = (params.CLI_BRANCH == 'main')
+                            ? env.CLI_DEFAULT_BRANCH
+                            : params.CLI_BRANCH
+                    }
                 }
                 sh """
                     echo "--- CLI Variant Detected ---"
@@ -159,6 +203,7 @@ pipeline {
                     echo "  Package:   ${env.CLI_PKG_NAME}"
                     echo "  Binary:    ${env.CLI_BINARY}"
                     echo "  Branch:    ${env.EFFECTIVE_BRANCH}"
+                    echo "  Repo:      ${env.CLI_REPO_URL}"
                     echo "  Studio:    \$STUDIO_URL"
                 """
             }
@@ -169,7 +214,7 @@ pipeline {
                 sh """
                     echo "--- Setting up CLI for branch: ${env.EFFECTIVE_BRANCH} ---"
 
-                    CLI_REPO_URL="https://github.com/wavemaker/wm-reactnative-cli.git"
+                    CLI_REPO_URL="${env.CLI_REPO_URL}"
                     CLI_REPO_PATH="\${WORKSPACE}/wm-reactnative-cli"
 
                     if [ ! -d "\$CLI_REPO_PATH" ]; then
@@ -267,58 +312,67 @@ pipeline {
                         case 'App Build':
                             specFiles = './test/specs/app-build.spec.ts'
                             break
+                        case 'Security Vulnerabilities':
+                            specFiles = './test/specs/security-vulnerabilities.spec.ts'
+                            break
                     }
 
-                    // Username with password cred maps to BROWSERSTACK_USERNAME / BROWSERSTACK_ACCESS_KEY
-                    withCredentials([usernamePassword(
-                        credentialsId: 'BROWSERSTACK_CREDS',
-                        usernameVariable: 'BROWSERSTACK_USERNAME',
-                        passwordVariable: 'BROWSERSTACK_ACCESS_KEY'
-                    )]) {
-                        sh """
-                            if [ -f "${WORKSPACE}/.ci-env.sh" ]; then
-                                echo "--- Loading Android CI env ---"
-                                set -a
-                                . "${WORKSPACE}/.ci-env.sh"
-                                set +a
+                    def testSh = """
+                        if [ -f "${WORKSPACE}/.ci-env.sh" ]; then
+                            echo "--- Loading Android CI env ---"
+                            set -a
+                            . "${WORKSPACE}/.ci-env.sh"
+                            set +a
+                            if [ "${params.RUN_TARGET}" != "Security Vulnerabilities" ]; then
                                 gradle --version
                                 echo "ANDROID_HOME=\${ANDROID_HOME}"
                             fi
+                        fi
 
-                            echo "--- RN ZIP env (masked) ---"
-                            echo "STUDIO_URL=\${STUDIO_URL}"
-                            echo "WM_PROJECT_ID prefix: \$(echo \"\$WM_PROJECT_ID\" | cut -c1-8)..."
-                            echo "STUDIO_PROJECT_ID prefix: \$(echo \"\$STUDIO_PROJECT_ID\" | cut -c1-8)..."
-                            if [ -n "\$RN_ZIP_DOWNLOAD_URL" ]; then echo "RN_ZIP_DOWNLOAD_URL set: yes"; else echo "RN_ZIP_DOWNLOAD_URL set: no"; fi
-                            echo "RN_BUILD_EMPTY_JOBS_POLL_LIMIT=\${RN_BUILD_EMPTY_JOBS_POLL_LIMIT:-12}"
-                            echo "APP_VERIFICATION_ID=\${APP_VERIFICATION_ID}"
-                            echo "WEB_PREVIEW_XPATH=\${WEB_PREVIEW_XPATH}"
+                        echo "--- RN ZIP env (masked) ---"
+                        echo "STUDIO_URL=\${STUDIO_URL}"
+                        echo "WM_PROJECT_ID prefix: \$(echo \"\$WM_PROJECT_ID\" | cut -c1-8)..."
+                        echo "STUDIO_PROJECT_ID prefix: \$(echo \"\$STUDIO_PROJECT_ID\" | cut -c1-8)..."
+                        if [ -n "\$RN_ZIP_DOWNLOAD_URL" ]; then echo "RN_ZIP_DOWNLOAD_URL set: yes"; else echo "RN_ZIP_DOWNLOAD_URL set: no"; fi
+                        echo "SECURITY_CLI_BINARY=\${SECURITY_CLI_BINARY:-${env.CLI_BINARY}}"
 
-                            rm -rf allure-results allure-report
+                        rm -rf allure-results allure-report security-report security-reports
 
-                            CLI_VERSION=\$(${env.CLI_BINARY} --version 2>/dev/null || echo 'unknown')
-                            mkdir -p allure-results
-                            echo "CLI_Version=\$CLI_VERSION" > allure-results/environment.properties
-                            echo "CLI_Platform=${env.CLI_PLATFORM}" >> allure-results/environment.properties
-                            echo "CLI_Binary=${env.CLI_BINARY}" >> allure-results/environment.properties
-                            echo "Branch=${env.EFFECTIVE_BRANCH}" >> allure-results/environment.properties
-                            echo "Package_Manager=${params.PKG_MANAGER}" >> allure-results/environment.properties
-                            echo "Run_Target=${params.RUN_TARGET}" >> allure-results/environment.properties
+                        CLI_VERSION=\$(${env.CLI_BINARY} --version 2>/dev/null || echo 'unknown')
+                        mkdir -p allure-results
+                        echo "CLI_Version=\$CLI_VERSION" > allure-results/environment.properties
+                        echo "CLI_Platform=${env.CLI_PLATFORM}" >> allure-results/environment.properties
+                        echo "CLI_Binary=${env.CLI_BINARY}" >> allure-results/environment.properties
+                        echo "Branch=${env.EFFECTIVE_BRANCH}" >> allure-results/environment.properties
+                        echo "Package_Manager=${params.PKG_MANAGER}" >> allure-results/environment.properties
+                        echo "Run_Target=${params.RUN_TARGET}" >> allure-results/environment.properties
 
-                            set +e
-                            PACKAGE_MANAGER="${params.PKG_MANAGER}" \
-                            RUN_LOCAL="false" \
-                            HEADLESS="true" \
-                            npx mocha \
-                                --reporter allure-mocha \
-                                --require ts-node/register \
-                                --timeout 999999 \
-                                ${specFiles}
-                            TEST_EXIT=\$?
-                            set -e
+                        set +e
+                        PACKAGE_MANAGER="${params.PKG_MANAGER}" \
+                        RUN_LOCAL="false" \
+                        HEADLESS="true" \
+                        SECURITY_CLI_BINARY="${env.SECURITY_CLI_BINARY ?: env.CLI_BINARY}" \
+                        npx mocha \
+                            --reporter allure-mocha \
+                            --require ts-node/register \
+                            --timeout 999999 \
+                            ${specFiles}
+                        TEST_EXIT=\$?
+                        set -e
 
-                            exit \$TEST_EXIT
-                        """
+                        exit \$TEST_EXIT
+                    """
+
+                    if (isSecurityRun()) {
+                        sh testSh
+                    } else {
+                        withCredentials([usernamePassword(
+                            credentialsId: 'BROWSERSTACK_CREDS',
+                            usernameVariable: 'BROWSERSTACK_USERNAME',
+                            passwordVariable: 'BROWSERSTACK_ACCESS_KEY'
+                        )]) {
+                            sh testSh
+                        }
                     }
                 }
             }
@@ -338,23 +392,36 @@ pipeline {
             '''
             archiveArtifacts artifacts: 'allure-report/**', allowEmptyArchive: true
             archiveArtifacts artifacts: 'allure-results/**', allowEmptyArchive: true
+            archiveArtifacts artifacts: 'security-report/**,security-reports/**', allowEmptyArchive: true
             echo "Run complete. Platform: ${env.CLI_PLATFORM}, Branch: ${env.EFFECTIVE_BRANCH}, Target: ${params.RUN_TARGET}, PM: ${params.PKG_MANAGER}"
         }
         success {
             script {
-                uploadReportsToS3()
+                if (isSecurityRun()) {
+                    uploadSecurityReportsToS3()
+                } else {
+                    uploadReportsToS3()
+                }
             }
             echo "Pipeline completed successfully — ${env.CLI_PLATFORM} CLI, branch: ${env.EFFECTIVE_BRANCH}"
         }
         failure {
             script {
-                uploadReportsToS3(nonFatal: true)
+                if (isSecurityRun()) {
+                    uploadSecurityReportsToS3(nonFatal: true)
+                } else {
+                    uploadReportsToS3(nonFatal: true)
+                }
             }
             echo "Pipeline failed — ${env.CLI_PLATFORM} CLI, branch: ${env.EFFECTIVE_BRANCH} — check archived reports."
         }
         unstable {
             script {
-                uploadReportsToS3(nonFatal: true)
+                if (isSecurityRun()) {
+                    uploadSecurityReportsToS3(nonFatal: true)
+                } else {
+                    uploadReportsToS3(nonFatal: true)
+                }
             }
         }
     }

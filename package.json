@@ -11,10 +11,12 @@
     "test:appchef": "npx mocha --reporter allure-mocha --require ts-node/register --timeout 30000 test/specs/appchef-version.spec.ts",
     "test:preview": "npx mocha --reporter allure-mocha --require ts-node/register --timeout 999999 test/specs/preview-cli.spec.ts",
     "test:build": "npx mocha --reporter allure-mocha --require ts-node/register --timeout 999999 test/specs/app-build.spec.ts",
+    "test:security": "npx mocha --reporter allure-mocha --require ts-node/register --timeout 999999 test/specs/security-vulnerabilities.spec.ts",
     "test:maven": "npx mocha --reporter allure-mocha --require ts-node/register --timeout 999999 test/specs/maven-expo.spec.ts",
     "report:generate": "npx allure generate allure-results --clean --single-file -o allure-report",
     "report:open": "allure open allure-report",
-    "report:upload": "npx ts-node scripts/generate-and-upload-report.ts"
+    "report:upload": "npx ts-node scripts/generate-and-upload-report.ts",
+    "report:upload:security": "npx ts-node scripts/generate-and-upload-security-report.ts"
   },
   "keywords": [
     "wavemaker",
