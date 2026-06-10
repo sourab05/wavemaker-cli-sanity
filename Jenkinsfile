@@ -139,6 +139,7 @@ pipeline {
         STUDIO_BASE_URL = credentials('WM_CLI_STUDIO_URL')
         PROJECT_ID      = credentials('WM_CLI_PROJECT_ID')
         STUDIO_PROJECT_ID = credentials('WM_CLI_STUDIO_PROJECT_ID')
+        SNYK_TOKEN        = credentials('SNYK_TOKEN')
 
         WM_NPM_REGISTRY = 'https://repository.wavemaker.com/repository/wavemaker-npm-repo/'
 
