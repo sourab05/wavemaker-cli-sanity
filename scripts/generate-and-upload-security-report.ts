@@ -31,12 +31,9 @@ async function main(): Promise<void> {
 
   writeSecurityReportTxt(outputDir, meta);
 
-  if (!process.env.S3_REPORT_PROJECT) {
-    process.env.S3_REPORT_PROJECT = 'Security Vulnerabilities';
-  }
-  if (!process.env.S3_REPORT_FILENAME) {
-    process.env.S3_REPORT_FILENAME = 'security-vulnerabilities.txt';
-  }
+  // Always use security path (Jenkins pipeline env defaults to Cli/stage-ai-cli.html)
+  process.env.S3_REPORT_PROJECT = 'Security Vulnerabilities';
+  process.env.S3_REPORT_FILENAME = 'security-vulnerabilities.txt';
 
   console.log('--- Uploading security report to S3 ---');
   const url = await uploadReportToS3({

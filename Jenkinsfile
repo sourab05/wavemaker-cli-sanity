@@ -26,7 +26,12 @@ def uploadSecurityReportsToS3(Map args = [:]) {
         echo '--- S3_VERSION is empty — skipping security report upload ---'
         return
     }
-    def cmd = 'npx ts-node scripts/generate-and-upload-security-report.ts'
+    // Override pipeline defaults (Cli/stage-ai-cli.html) — security reports use a separate S3 folder
+    def cmd = """
+        S3_REPORT_PROJECT='Security Vulnerabilities' \\
+        S3_REPORT_FILENAME='security-vulnerabilities.txt' \\
+        npx ts-node scripts/generate-and-upload-security-report.ts
+    """.trim()
     if (nonFatal) {
         sh "${cmd} || echo \"Security S3 upload skipped or failed (non-fatal)\""
     } else {
