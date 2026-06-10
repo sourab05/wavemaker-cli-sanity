@@ -7,6 +7,7 @@ export interface SecurityReportInput {
   cliVersion?: string;
   cliBinary?: string;
   projectPath?: string;
+  rnZipPath?: string;
   rnZipSource?: string;
 }
 
@@ -52,6 +53,7 @@ export function buildSecurityReportHtml(input: SecurityReportInput): string {
     <div>Generated: ${escapeHtml(generatedAt)}</div>
     <div>CLI: ${escapeHtml(input.cliBinary || 'unknown')} ${escapeHtml(input.cliVersion || '')}</div>
     <div>Project: ${escapeHtml(input.projectPath || 'n/a')}</div>
+    <div>RN ZIP: ${escapeHtml(input.rnZipPath || 'n/a')}</div>
     <div>RN ZIP source: ${escapeHtml(input.rnZipSource || 'Studio download')}</div>
   </div>
   <section>

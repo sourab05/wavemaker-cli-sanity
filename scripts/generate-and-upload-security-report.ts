@@ -1,7 +1,7 @@
 #!/usr/bin/env npx ts-node
 /**
  * Generate security-report/index.html from audit-report.txt + snyk-report.txt
- * and upload to S3 under react_native/releases/<version>/SecurityVulnerablilities/
+ * and upload to S3 under react_native/releases/<version>/Security Vulnerabilities/
  */
 
 import * as fs from 'fs';
@@ -26,7 +26,7 @@ async function main(): Promise<void> {
   writeSecurityReport(outputDir, meta);
 
   if (!process.env.S3_REPORT_PROJECT) {
-    process.env.S3_REPORT_PROJECT = 'SecurityVulnerablilities';
+    process.env.S3_REPORT_PROJECT = 'Security Vulnerabilities';
   }
   if (!process.env.S3_REPORT_FILENAME) {
     process.env.S3_REPORT_FILENAME = 'security-vulnerabilities.html';

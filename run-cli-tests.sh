@@ -56,12 +56,24 @@ echo "CLI Repo Path set to: $CLI_REPO_PATH"
 echo "Automation Repo Path set to: $AUTOMATION_REPO_PATH"
 
 # --- Arguments ---
-# $1 = branch name (required)
+# $1 = branch name (required for main CLI tests; optional for security — defaults to SecurityVulnerabilities)
 # $2 = package manager: npm | yarn | both (optional, default: npm)
+# $3 = optional target: security — runs security vulnerabilities scan (separate S3 path)
+
+if [ "${3:-}" = "security" ] || [ "${1:-}" = "security" ]; then
+  SECURITY_BRANCH="${SECURITY_CLI_BRANCH:-SecurityVulnerabilities}"
+  if [ "${1:-}" != "security" ] && [ -n "${1:-}" ]; then
+    SECURITY_BRANCH="$1"
+  fi
+  echo "--- Delegating to security vulnerabilities script (branch: $SECURITY_BRANCH) ---"
+  exec "$SCRIPT_DIR/scripts/run-security-vulnerabilities.sh" "$SECURITY_BRANCH"
+fi
 
 if [ -z "$1" ]; then
   echo "Error: No branch name supplied."
   echo "Usage: ./run-cli-tests.sh <branch-name> [npm|yarn|both]"
+  echo "       ./run-cli-tests.sh [SecurityVulnerabilities] npm security"
+  echo "       ./scripts/run-security-vulnerabilities.sh [branch]"
   exit 1
 fi
 

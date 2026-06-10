@@ -3,15 +3,15 @@ import * as path from 'path';
 import { execSync } from 'child_process';
 import dotenv from 'dotenv';
 import assert from 'assert';
-import { getAppConfig } from '../../src/config';
 import { createLogger } from '../../src/utils/Logger';
 import { getCliVariant } from '../../src/utils/cli-variant';
 import { runCommand } from '../../src/utils/run-command';
 import { writeSecurityReport } from '../../src/utils/security-report';
 import {
   RnProjectManager,
-  shouldDownloadRnProjectFromStudio,
+  RnProjectArtifacts,
 } from '../../src/services/RnProjectManager';
+import { getAppConfig } from '../../src/config';
 
 dotenv.config();
 
@@ -28,23 +28,35 @@ function resolveCliBinary(): string {
   );
 }
 
-function resolveRnZipSource(): string {
-  if (process.env.RN_ZIP_DOWNLOAD_URL?.trim()) {
-    return process.env.RN_ZIP_DOWNLOAD_URL.trim();
+function resolveCliAuditCommand(subcommand: 'audit' | 'snyk', targetPath: string): string {
+  const repoPath = process.env.SECURITY_CLI_REPO_PATH?.trim();
+  if (repoPath) {
+    const cliEntry = path.join(repoPath, 'index.js');
+    return `node "${cliEntry}" ${subcommand} "${targetPath}"`;
   }
-  return 'Studio jobs API (nativeMobileZipId)';
+  return `${resolveCliBinary()} ${subcommand} "${targetPath}"`;
+}
+
+function resolveReportPathFromOutput(output: string, fallbackPath: string): string {
+  const match = output.match(/report saved to (.+)/i);
+  if (match?.[1]) {
+    return match[1].trim();
+  }
+  return fallbackPath;
 }
 
 async function runSecurityCommand(
   label: string,
   command: string,
-  reportPath: string
-): Promise<{ exitCode: number; reportExists: boolean }> {
+  fallbackReportPath: string
+): Promise<{ exitCode: number; reportPath: string; reportExists: boolean }> {
   log.info(`Running ${label}: ${command}`);
   let exitCode = 0;
+  let stdout = '';
+  let stderr = '';
 
   try {
-    await runCommand(command, {
+    const result = await runCommand(command, {
       cwd: process.cwd(),
       timeout: scanTimeout,
       onData: (text, child) => {
@@ -56,28 +68,40 @@ async function runSecurityCommand(
         }
       },
     });
+    if (typeof result === 'object' && result !== null && 'stdout' in result) {
+      stdout = result.stdout;
+      stderr = result.stderr;
+    } else if (typeof result === 'string') {
+      stdout = result;
+    }
   } catch (error: any) {
     exitCode = 1;
-    log.warn(`${label} exited with error: ${error.message}`);
+    const message = error.message || String(error);
+    stdout = message;
+    log.warn(`${label} exited with error: ${message}`);
   }
 
+  const combinedOutput = `${stdout}\n${stderr}`;
+  const reportPath = resolveReportPathFromOutput(combinedOutput, fallbackReportPath);
   const reportExists = fs.existsSync(reportPath);
+
   if (reportExists) {
     log.success(`${label} report saved: ${reportPath}`);
   } else {
     log.error(`${label} report not found: ${reportPath}`);
   }
 
-  return { exitCode, reportExists };
+  return { exitCode, reportPath, reportExists };
 }
 
 describe('CLI Security Vulnerabilities (npm audit + Snyk)', function () {
   this.timeout(scanTimeout * 2 + 30 * 60 * 1000);
 
-  let config: ReturnType<typeof getAppConfig>;
-  let projectPath = '';
+  let artifacts: RnProjectArtifacts;
   let cliBinary = '';
   let cliVersion = 'unknown';
+  let auditReportPath = '';
+  let snykReportPath = '';
 
   before(async function () {
     if (process.env.SKIP_SECURITY_SCAN === 'true') {
@@ -85,7 +109,7 @@ describe('CLI Security Vulnerabilities (npm audit + Snyk)', function () {
       this.skip();
     }
 
-    config = getAppConfig();
+    const config = getAppConfig();
     cliBinary = resolveCliBinary();
 
     try {
@@ -97,51 +121,63 @@ describe('CLI Security Vulnerabilities (npm audit + Snyk)', function () {
     log.separator('Security Vulnerabilities Scan');
     log.info(`CLI binary: ${cliBinary} (${cliVersion})`);
     log.info(`CLI variant: ${variant.platform}`);
-    log.info(`RN ZIP source: ${resolveRnZipSource()}`);
 
-    if (shouldDownloadRnProjectFromStudio(config.projectPath)) {
-      log.step(1, 3, 'Downloading RN ZIP from Studio...');
-      const rnManager = RnProjectManager.fromEnv();
-      const profileName = process.env.RN_BUILD_PROFILE || 'development';
-      const outputBaseDir = path.join(path.dirname(config.projectPath), '.studio-download');
-      projectPath = await rnManager.prepareProject(outputBaseDir, profileName);
-      log.info(`Using RN project at: ${projectPath}`);
-    } else if (fs.existsSync(config.projectPath)) {
-      projectPath = config.projectPath;
-      log.info(`Using local RN project at: ${projectPath}`);
-    } else {
-      throw new Error(
-        `RN project not found at ${config.projectPath}. Set RN_DOWNLOAD_FROM_STUDIO=true or provide a valid project path.`
-      );
-    }
+    log.step(1, 3, 'Downloading RN ZIP from Studio and extracting (RnProjectManager)...');
+    const rnManager = RnProjectManager.fromEnv();
+    const profileName = process.env.RN_BUILD_PROFILE || 'development';
+    const outputBaseDir = path.join(
+      path.dirname(config.projectPath),
+      '.studio-download-security'
+    );
 
-    assert.ok(fs.existsSync(projectPath), `Project path does not exist: ${projectPath}`);
+    artifacts = await rnManager.prepareProjectWithZip(outputBaseDir, profileName);
+
+    log.info(`RN ZIP: ${artifacts.zipPath} (${(fs.statSync(artifacts.zipPath).size / 1024 / 1024).toFixed(2)} MB)`);
+    log.info(`Extracted project: ${artifacts.projectPath}`);
+    assert.ok(fs.existsSync(artifacts.zipPath), `ZIP missing: ${artifacts.zipPath}`);
+    assert.ok(fs.existsSync(artifacts.projectPath), `Project missing: ${artifacts.projectPath}`);
   });
 
-  it('should run npm audit via CLI and produce audit-report.txt', async function () {
-    const auditReportPath = path.join(projectPath, 'audit-report.txt');
-    const command = `${cliBinary} audit "${projectPath}"`;
-    const { exitCode, reportExists } = await runSecurityCommand('npm audit', command, auditReportPath);
+  it('should run npm audit on Studio RN ZIP via CLI', async function () {
+    log.step(2, 3, 'Running npm audit on Studio RN ZIP...');
+    const zipPath = artifacts.zipPath;
+    const command = resolveCliAuditCommand('audit', zipPath);
+    const fallbackReportPath = path.join(artifacts.projectPath, 'audit-report.txt');
 
-    assert.ok(reportExists, `Expected audit report at ${auditReportPath}`);
+    const { exitCode, reportPath, reportExists } = await runSecurityCommand(
+      'npm audit',
+      command,
+      fallbackReportPath
+    );
+    auditReportPath = reportPath;
+
+    assert.ok(reportExists, `Expected audit report at ${reportPath}`);
     if (failOnVuln && exitCode !== 0) {
       assert.fail('npm audit reported vulnerabilities (SECURITY_FAIL_ON_VULN=true)');
     }
   });
 
-  it('should run Snyk via CLI and produce snyk-report.txt', async function () {
+  it('should run Snyk on Studio RN ZIP via CLI', async function () {
     if (!process.env.SNYK_TOKEN?.trim()) {
       log.warn('Skipping Snyk scan (SNYK_TOKEN not set)');
       this.skip();
     }
 
+    log.step(3, 3, 'Running Snyk on Studio RN ZIP...');
     process.env.SNYK_API_TOKEN = process.env.SNYK_TOKEN;
 
-    const snykReportPath = path.join(projectPath, 'snyk-report.txt');
-    const command = `${cliBinary} snyk "${projectPath}"`;
-    const { exitCode, reportExists } = await runSecurityCommand('Snyk', command, snykReportPath);
+    const zipPath = artifacts.zipPath;
+    const command = resolveCliAuditCommand('snyk', zipPath);
+    const fallbackReportPath = path.join(artifacts.projectPath, 'snyk-report.txt');
 
-    assert.ok(reportExists, `Expected Snyk report at ${snykReportPath}`);
+    const { exitCode, reportPath, reportExists } = await runSecurityCommand(
+      'Snyk',
+      command,
+      fallbackReportPath
+    );
+    snykReportPath = reportPath;
+
+    assert.ok(reportExists, `Expected Snyk report at ${reportPath}`);
     if (failOnVuln && exitCode !== 0) {
       assert.fail('Snyk reported vulnerabilities (SECURITY_FAIL_ON_VULN=true)');
     }
@@ -150,8 +186,6 @@ describe('CLI Security Vulnerabilities (npm audit + Snyk)', function () {
   after(function () {
     const workspaceReportsDir = path.resolve(process.cwd(), 'security-reports');
     const securityReportDir = path.resolve(process.cwd(), 'security-report');
-    const auditReportPath = path.join(projectPath, 'audit-report.txt');
-    const snykReportPath = path.join(projectPath, 'snyk-report.txt');
 
     fs.mkdirSync(workspaceReportsDir, { recursive: true });
 
@@ -160,8 +194,9 @@ describe('CLI Security Vulnerabilities (npm audit + Snyk)', function () {
       snykReportPath,
       cliVersion,
       cliBinary,
-      projectPath,
-      rnZipSource: resolveRnZipSource(),
+      projectPath: artifacts?.projectPath,
+      rnZipPath: artifacts?.zipPath,
+      rnZipSource: artifacts?.downloadUrl || process.env.RN_ZIP_DOWNLOAD_URL || 'Studio jobs API',
     };
 
     fs.writeFileSync(
@@ -175,6 +210,12 @@ describe('CLI Security Vulnerabilities (npm audit + Snyk)', function () {
     }
     if (snykReportPath && fs.existsSync(snykReportPath)) {
       fs.copyFileSync(snykReportPath, path.join(workspaceReportsDir, 'snyk-report.txt'));
+    }
+    if (artifacts?.zipPath && fs.existsSync(artifacts.zipPath)) {
+      fs.copyFileSync(
+        artifacts.zipPath,
+        path.join(workspaceReportsDir, path.basename(artifacts.zipPath))
+      );
     }
 
     writeSecurityReport(securityReportDir, meta);

@@ -24,6 +24,7 @@ downloaded-projects/
 rn-zips/
 wm-projects/
 .wm-reactnative-cli/
+wm-reactnative-cli-security/
 
 # IDE files
 .vscode/
@@ -41,6 +42,10 @@ yarn-error.log*
 # Test results
 allure-results/
 allure-report/
+allure-results-*/
+allure-report-*/
+security-report/
+security-reports/
 coverage/
 .nyc_output/
 

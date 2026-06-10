@@ -17,6 +17,14 @@ export interface RnProjectManagerConfig {
   pollTimeoutMs?: number;
 }
 
+/** Result of Studio RN ZIP download + extract (used by security audit/snyk). */
+export interface RnProjectArtifacts {
+  zipPath: string;
+  projectPath: string;
+  outputBaseDir: string;
+  downloadUrl?: string;
+}
+
 interface StudioJobMetadata {
   nativeMobileZipId?: string;
   profileName?: string;
@@ -476,7 +484,7 @@ export class RnProjectManager {
     try {
       const jobsZipUrl = await this.fetchLatestNativeZipDownloadUrl();
       if (jobsZipUrl) {
-        return await this.downloadExtractAndFindRoot(outputBaseDir, jobsZipUrl);
+        return (await this.downloadExtractAndFindRoot(outputBaseDir, jobsZipUrl)).projectPath;
       }
     } catch (error: any) {
       log.warn(`Jobs API lookup failed: ${error.message}`);
@@ -486,7 +494,7 @@ export class RnProjectManager {
     if (fallbackZip) {
       const downloadUrl = this.resolveDownloadUrl(fallbackZip);
       log.warn(`Using RN_ZIP_DOWNLOAD_URL → ${downloadUrl}`);
-      return await this.downloadExtractAndFindRoot(outputBaseDir, downloadUrl);
+      return (await this.downloadExtractAndFindRoot(outputBaseDir, downloadUrl)).projectPath;
     }
 
     throw new Error(
@@ -563,7 +571,8 @@ export class RnProjectManager {
         }
 
         const downloadUrl = await this.buildNativeMobileApp(profileName);
-        return await this.downloadExtractAndFindRoot(outputBaseDir, downloadUrl);
+        const artifacts = await this.downloadExtractAndFindRoot(outputBaseDir, downloadUrl);
+        return artifacts.projectPath;
       } catch (error: any) {
         buildError = error instanceof Error ? error : new Error(String(error));
         log.error(`Studio RN build attempt ${attempt}/${maxAttempts} failed: ${buildError.message}`);
@@ -585,7 +594,7 @@ export class RnProjectManager {
       const jobsZipUrl = await this.fetchLatestNativeZipDownloadUrl();
       if (jobsZipUrl) {
         log.warn('Fallback: downloading latest native ZIP from Studio jobs API');
-        return await this.downloadExtractAndFindRoot(outputBaseDir, jobsZipUrl);
+        return (await this.downloadExtractAndFindRoot(outputBaseDir, jobsZipUrl)).projectPath;
       }
     } catch (error: any) {
       const message = error instanceof Error ? error.message : String(error);
@@ -596,7 +605,7 @@ export class RnProjectManager {
     if (fallbackZip) {
       const downloadUrl = this.resolveDownloadUrl(fallbackZip);
       log.warn(`Fallback: downloading configured RN_ZIP_DOWNLOAD_URL → ${downloadUrl}`);
-      return await this.downloadExtractAndFindRoot(outputBaseDir, downloadUrl);
+      return (await this.downloadExtractAndFindRoot(outputBaseDir, downloadUrl)).projectPath;
     }
 
     throw buildError ?? new Error('Studio RN build failed and no fallback ZIP source configured');
@@ -605,14 +614,36 @@ export class RnProjectManager {
   private async downloadExtractAndFindRoot(
     outputBaseDir: string,
     downloadUrl: string
-  ): Promise<string> {
+  ): Promise<RnProjectArtifacts> {
     const zipPath = await this.downloadProject(downloadUrl, outputBaseDir);
     const extractPath = path.join(outputBaseDir, 'rn-project');
     await this.extractZip(zipPath, extractPath);
 
     const projectPath = findRnProjectRoot(extractPath);
     log.success(`RN project ready at ${projectPath}`);
-    return projectPath;
+    log.info(`RN ZIP saved at ${zipPath}`);
+    return { zipPath, projectPath, outputBaseDir, downloadUrl };
+  }
+
+  /**
+   * Download RN ZIP from Studio, extract, and return both zip path and project root.
+   * Same resolution order as prepareProject (build → jobs API → RN_ZIP_DOWNLOAD_URL).
+   */
+  async prepareProjectWithZip(
+    outputBaseDir: string,
+    profileName: string = 'development'
+  ): Promise<RnProjectArtifacts> {
+    const projectPath = await this.prepareProject(outputBaseDir, profileName);
+    const zipName = `${this.config.projectId}-native-mobile.zip`;
+    const zipPath = path.join(outputBaseDir, zipName);
+
+    if (!fs.existsSync(zipPath)) {
+      throw new Error(
+        `RN ZIP not found at ${zipPath} after Studio download. Cannot run audit/snyk on ZIP.`
+      );
+    }
+
+    return { zipPath, projectPath, outputBaseDir };
   }
 }
 

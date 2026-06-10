@@ -187,7 +187,7 @@ pipeline {
                         env.EFFECTIVE_BRANCH = (params.CLI_BRANCH == 'main')
                             ? env.SECURITY_CLI_BRANCH
                             : params.CLI_BRANCH
-                        env.S3_REPORT_PROJECT = 'SecurityVulnerablilities'
+                        env.S3_REPORT_PROJECT = 'Security Vulnerabilities'
                         env.S3_REPORT_FILENAME = 'security-vulnerabilities.html'
                         env.SECURITY_CLI_BINARY = env.SECURITY_CLI_BINARY
                     } else {
@@ -218,8 +218,8 @@ pipeline {
                     CLI_REPO_PATH="\${WORKSPACE}/wm-reactnative-cli"
 
                     if [ ! -d "\$CLI_REPO_PATH" ]; then
-                        echo "Cloning CLI repo..."
-                        git clone "\$CLI_REPO_URL" "\$CLI_REPO_PATH"
+                        echo "Cloning CLI repo (branch: ${env.EFFECTIVE_BRANCH})..."
+                        git clone -b "${env.EFFECTIVE_BRANCH}" "\$CLI_REPO_URL" "\$CLI_REPO_PATH"
                     else
                         echo "Updating CLI repo..."
                         cd "\$CLI_REPO_PATH"
@@ -229,6 +229,7 @@ pipeline {
                     fi
 
                     cd "\$CLI_REPO_PATH"
+                    git remote set-url origin "\$CLI_REPO_URL" 2>/dev/null || true
                     git checkout "${env.EFFECTIVE_BRANCH}"
                     git reset --hard "origin/${env.EFFECTIVE_BRANCH}"
 
@@ -294,6 +295,17 @@ pipeline {
         stage('Run Tests') {
             steps {
                 script {
+                    if (isSecurityRun()) {
+                        sh """
+                            chmod +x scripts/run-security-vulnerabilities.sh
+                            SKIP_CLI_SETUP=true \\
+                            SKIP_S3_UPLOAD=true \\
+                            SECURITY_CLI_REPO_PATH="\${WORKSPACE}/wm-reactnative-cli" \\
+                            ./scripts/run-security-vulnerabilities.sh ${env.EFFECTIVE_BRANCH}
+                        """
+                        return
+                    }
+
                     def specFiles = ''
                     switch (params.RUN_TARGET) {
                         case 'All Tests':
@@ -311,9 +323,6 @@ pipeline {
                             break
                         case 'App Build':
                             specFiles = './test/specs/app-build.spec.ts'
-                            break
-                        case 'Security Vulnerabilities':
-                            specFiles = './test/specs/security-vulnerabilities.spec.ts'
                             break
                     }
 
@@ -334,9 +343,11 @@ pipeline {
                         echo "WM_PROJECT_ID prefix: \$(echo \"\$WM_PROJECT_ID\" | cut -c1-8)..."
                         echo "STUDIO_PROJECT_ID prefix: \$(echo \"\$STUDIO_PROJECT_ID\" | cut -c1-8)..."
                         if [ -n "\$RN_ZIP_DOWNLOAD_URL" ]; then echo "RN_ZIP_DOWNLOAD_URL set: yes"; else echo "RN_ZIP_DOWNLOAD_URL set: no"; fi
-                        echo "SECURITY_CLI_BINARY=\${SECURITY_CLI_BINARY:-${env.CLI_BINARY}}"
+                        echo "RN_BUILD_EMPTY_JOBS_POLL_LIMIT=\${RN_BUILD_EMPTY_JOBS_POLL_LIMIT:-12}"
+                        echo "APP_VERIFICATION_ID=\${APP_VERIFICATION_ID}"
+                        echo "WEB_PREVIEW_XPATH=\${WEB_PREVIEW_XPATH}"
 
-                        rm -rf allure-results allure-report security-report security-reports
+                        rm -rf allure-results allure-report
 
                         CLI_VERSION=\$(${env.CLI_BINARY} --version 2>/dev/null || echo 'unknown')
                         mkdir -p allure-results
@@ -351,7 +362,6 @@ pipeline {
                         PACKAGE_MANAGER="${params.PKG_MANAGER}" \
                         RUN_LOCAL="false" \
                         HEADLESS="true" \
-                        SECURITY_CLI_BINARY="${env.SECURITY_CLI_BINARY ?: env.CLI_BINARY}" \
                         npx mocha \
                             --reporter allure-mocha \
                             --require ts-node/register \
@@ -363,16 +373,12 @@ pipeline {
                         exit \$TEST_EXIT
                     """
 
-                    if (isSecurityRun()) {
+                    withCredentials([usernamePassword(
+                        credentialsId: 'BROWSERSTACK_CREDS',
+                        usernameVariable: 'BROWSERSTACK_USERNAME',
+                        passwordVariable: 'BROWSERSTACK_ACCESS_KEY'
+                    )]) {
                         sh testSh
-                    } else {
-                        withCredentials([usernamePassword(
-                            credentialsId: 'BROWSERSTACK_CREDS',
-                            usernameVariable: 'BROWSERSTACK_USERNAME',
-                            passwordVariable: 'BROWSERSTACK_ACCESS_KEY'
-                        )]) {
-                            sh testSh
-                        }
                     }
                 }
             }

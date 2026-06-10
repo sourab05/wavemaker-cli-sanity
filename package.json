@@ -12,6 +12,7 @@
     "test:preview": "npx mocha --reporter allure-mocha --require ts-node/register --timeout 999999 test/specs/preview-cli.spec.ts",
     "test:build": "npx mocha --reporter allure-mocha --require ts-node/register --timeout 999999 test/specs/app-build.spec.ts",
     "test:security": "npx mocha --reporter allure-mocha --require ts-node/register --timeout 999999 test/specs/security-vulnerabilities.spec.ts",
+    "test:security:run": "./scripts/run-security-vulnerabilities.sh",
     "test:maven": "npx mocha --reporter allure-mocha --require ts-node/register --timeout 999999 test/specs/maven-expo.spec.ts",
     "report:generate": "npx allure generate allure-results --clean --single-file -o allure-report",
     "report:open": "allure open allure-report",
