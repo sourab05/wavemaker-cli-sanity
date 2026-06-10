@@ -12,9 +12,11 @@
 #   s3://<bucket>/react_native/releases/<S3_VERSION>/Security Vulnerabilities/security-vulnerabilities.html
 #
 # Env:
-#   SKIP_CLI_SETUP=true     Skip clone/link (Jenkins already ran Setup CLI)
-#   SKIP_S3_UPLOAD=true     Skip upload (Jenkins post block handles it)
-#   SNYK_TOKEN              Required for Snyk scan
+#   SKIP_CLI_SETUP=true       Skip clone/link (Jenkins already ran Setup Security CLI)
+#   CLI_SETUP_ONLY=true       Clone/link security fork only, then exit (Jenkins setup stage)
+#   PRESERVE_ALLURE_RESULTS=true  Keep existing allure-results (All Tests after CLI suite)
+#   SKIP_S3_UPLOAD=true       Skip upload (Jenkins post block handles it)
+#   SNYK_TOKEN                Required for Snyk scan
 
 set -euo pipefail
 
@@ -32,6 +34,8 @@ SECURITY_CLI_BINARY="${SECURITY_CLI_BINARY:-wm-reactnative}"
 SECURITY_CLI_PKG="@wavemaker/wm-reactnative-cli"
 SKIP_CLI_SETUP="${SKIP_CLI_SETUP:-false}"
 SKIP_S3_UPLOAD="${SKIP_S3_UPLOAD:-false}"
+CLI_SETUP_ONLY="${CLI_SETUP_ONLY:-false}"
+PRESERVE_ALLURE_RESULTS="${PRESERVE_ALLURE_RESULTS:-false}"
 
 # Always use security-specific S3 path (do not inherit Cli/ from .env)
 export S3_REPORT_PROJECT="Security Vulnerabilities"
@@ -40,7 +44,7 @@ export SECURITY_CLI_BINARY="${SECURITY_CLI_BINARY}"
 
 if [ -n "${WORKSPACE:-}" ]; then
   echo "--- Jenkins environment detected. Using WORKSPACE: $WORKSPACE ---"
-  CLI_REPO_PATH="${CLI_REPO_PATH:-$WORKSPACE/wm-reactnative-cli}"
+  CLI_REPO_PATH="${CLI_REPO_PATH:-$WORKSPACE/wm-reactnative-cli-security}"
   AUTOMATION_REPO_PATH="${AUTOMATION_REPO_PATH:-$WORKSPACE}"
 else
   echo "--- Local environment detected ---"
@@ -67,21 +71,33 @@ chmod +x "$ROOT/scripts/configure-npm-registry.sh"
 setup_security_cli() {
   echo "--- Setting up security CLI for branch: $SECURITY_CLI_BRANCH ---"
 
-  if [ ! -d "$CLI_REPO_PATH" ]; then
-    echo "CLI repository not found. Cloning from $SECURITY_CLI_REPO_URL..."
+  clone_security_cli() {
+    echo "Cloning from $SECURITY_CLI_REPO_URL (branch: $SECURITY_CLI_BRANCH)..."
+    rm -rf "$CLI_REPO_PATH"
     git clone -b "$SECURITY_CLI_BRANCH" "$SECURITY_CLI_REPO_URL" "$CLI_REPO_PATH"
+  }
+
+  if [ ! -d "$CLI_REPO_PATH/.git" ]; then
+    clone_security_cli
   else
-    echo "CLI repository found. Updating..."
     cd "$CLI_REPO_PATH"
-    echo "--- Discarding all local changes in CLI repo ---"
-    git remote set-url origin "$SECURITY_CLI_REPO_URL"
-    git reset --hard HEAD
-    git clean -fd
-    git fetch origin
+    CURRENT_URL="$(git remote get-url origin 2>/dev/null || true)"
+    if [ "$CURRENT_URL" != "$SECURITY_CLI_REPO_URL" ]; then
+      echo "CLI origin changed ($CURRENT_URL -> $SECURITY_CLI_REPO_URL). Re-cloning..."
+      cd "$ROOT"
+      clone_security_cli
+    else
+      echo "CLI repository found. Updating..."
+      echo "--- Discarding all local changes in CLI repo ---"
+      git remote set-url origin "$SECURITY_CLI_REPO_URL"
+      git reset --hard HEAD
+      git clean -fd
+      git fetch origin
+      git checkout -B "$SECURITY_CLI_BRANCH" "origin/$SECURITY_CLI_BRANCH"
+    fi
   fi
 
   cd "$CLI_REPO_PATH"
-  git checkout "$SECURITY_CLI_BRANCH"
   git reset --hard "origin/$SECURITY_CLI_BRANCH"
 
   echo "--- [NPM] Configuring registry for CLI repo ---"
@@ -130,18 +146,39 @@ else
   cd "$AUTOMATION_REPO_PATH"
 fi
 
+if [ "$CLI_SETUP_ONLY" = "true" ]; then
+  echo "--- CLI setup complete (CLI_SETUP_ONLY=true) ---"
+  exit 0
+fi
+
 echo "--- Running security vulnerabilities spec ---"
 echo "--- RN ZIP will be downloaded from Studio via RnProjectManager (same as app-build) ---"
 export RN_DOWNLOAD_FROM_STUDIO="${RN_DOWNLOAD_FROM_STUDIO:-true}"
-rm -rf allure-results allure-report security-report security-reports
-mkdir -p allure-results
+
+if [ "$PRESERVE_ALLURE_RESULTS" = "true" ]; then
+  rm -rf security-report security-reports
+  mkdir -p allure-results
+else
+  rm -rf allure-results allure-report security-report security-reports
+  mkdir -p allure-results
+fi
 
 CLI_VERSION="$(node -e "console.log(require('${SECURITY_CLI_REPO_PATH:-$CLI_REPO_PATH}/package.json').version)" 2>/dev/null || echo 'unknown')"
-echo "CLI_Version=$CLI_VERSION" > allure-results/environment.properties
-echo "CLI_Binary=$SECURITY_CLI_BINARY" >> allure-results/environment.properties
-echo "Branch=$SECURITY_CLI_BRANCH" >> allure-results/environment.properties
-echo "Run_Target=Security Vulnerabilities" >> allure-results/environment.properties
-echo "S3_Project=$S3_REPORT_PROJECT" >> allure-results/environment.properties
+if [ "$PRESERVE_ALLURE_RESULTS" = "true" ]; then
+  {
+    echo "Security_CLI_Version=$CLI_VERSION"
+    echo "Security_CLI_Binary=$SECURITY_CLI_BINARY"
+    echo "Security_Branch=$SECURITY_CLI_BRANCH"
+    echo "Security_Run_Target=Security Vulnerabilities"
+    echo "Security_S3_Project=$S3_REPORT_PROJECT"
+  } >> allure-results/environment.properties
+else
+  echo "CLI_Version=$CLI_VERSION" > allure-results/environment.properties
+  echo "CLI_Binary=$SECURITY_CLI_BINARY" >> allure-results/environment.properties
+  echo "Branch=$SECURITY_CLI_BRANCH" >> allure-results/environment.properties
+  echo "Run_Target=Security Vulnerabilities" >> allure-results/environment.properties
+  echo "S3_Project=$S3_REPORT_PROJECT" >> allure-results/environment.properties
+fi
 
 set +e
 RUN_LOCAL="${RUN_LOCAL:-false}" \

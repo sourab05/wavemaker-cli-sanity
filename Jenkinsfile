@@ -34,8 +34,16 @@ def uploadSecurityReportsToS3(Map args = [:]) {
     }
 }
 
-def isSecurityRun() {
+def isSecurityOnlyRun() {
     return params.RUN_TARGET == 'Security Vulnerabilities'
+}
+
+def runsSecurityScan() {
+    return params.RUN_TARGET == 'Security Vulnerabilities' || params.RUN_TARGET == 'All Tests'
+}
+
+def isSecurityRun() {
+    return isSecurityOnlyRun()
 }
 
 pipeline {
@@ -50,12 +58,12 @@ pipeline {
         choice(
             name: 'RUN_TARGET',
             choices: ['All Tests', 'AppChef Version', 'Sync & Web Preview', 'App Build', 'Security Vulnerabilities'],
-            description: 'Which test suite to run'
+            description: 'Which test suite to run. All Tests runs CLI suite first, then Security Vulnerabilities (separate fork + S3 path).'
         )
         string(
             name: 'CLI_REPO_URL',
             defaultValue: '',
-            description: 'Optional CLI git repo URL. Leave empty for defaults (wavemaker repo, or Karthik7bk fork for Security Vulnerabilities).'
+            description: 'Optional CLI git repo URL. Leave empty for wavemaker repo (CLI tests). Security scan always uses the Karthik7bk fork in wm-reactnative-cli-security/.'
         )
         choice(
             name: 'PKG_MANAGER',
@@ -180,22 +188,15 @@ pipeline {
                         env.CLI_DEFAULT_BRANCH = 'main'
                     }
 
-                    if (isSecurityRun()) {
-                        env.CLI_REPO_URL = params.CLI_REPO_URL?.trim() ?: env.SECURITY_CLI_REPO_URL
-                        env.CLI_PKG_NAME = '@wavemaker/wm-reactnative-cli'
-                        env.CLI_BINARY = env.SECURITY_CLI_BINARY
-                        env.EFFECTIVE_BRANCH = (params.CLI_BRANCH == 'main')
-                            ? env.SECURITY_CLI_BRANCH
-                            : params.CLI_BRANCH
-                        env.S3_REPORT_PROJECT = 'Security Vulnerabilities'
-                        env.S3_REPORT_FILENAME = 'security-vulnerabilities.html'
-                        env.SECURITY_CLI_BINARY = env.SECURITY_CLI_BINARY
-                    } else {
-                        env.CLI_REPO_URL = params.CLI_REPO_URL?.trim() ?: 'https://github.com/wavemaker/wm-reactnative-cli.git'
-                        env.EFFECTIVE_BRANCH = (params.CLI_BRANCH == 'main')
-                            ? env.CLI_DEFAULT_BRANCH
-                            : params.CLI_BRANCH
-                    }
+                    env.CLI_REPO_URL = params.CLI_REPO_URL?.trim() ?: 'https://github.com/wavemaker/wm-reactnative-cli.git'
+                    env.EFFECTIVE_BRANCH = (params.CLI_BRANCH == 'main')
+                        ? env.CLI_DEFAULT_BRANCH
+                        : params.CLI_BRANCH
+
+                    env.SECURITY_EFFECTIVE_BRANCH = (params.CLI_BRANCH == 'main')
+                        ? env.SECURITY_CLI_BRANCH
+                        : params.CLI_BRANCH
+                    env.SECURITY_CLI_REPO_PATH = "${WORKSPACE}/wm-reactnative-cli-security"
                 }
                 sh """
                     echo "--- CLI Variant Detected ---"
@@ -204,34 +205,52 @@ pipeline {
                     echo "  Binary:    ${env.CLI_BINARY}"
                     echo "  Branch:    ${env.EFFECTIVE_BRANCH}"
                     echo "  Repo:      ${env.CLI_REPO_URL}"
+                    echo "  Security branch: ${env.SECURITY_EFFECTIVE_BRANCH}"
+                    echo "  Security repo:   ${env.SECURITY_CLI_REPO_URL}"
                     echo "  Studio:    \$STUDIO_URL"
                 """
             }
         }
 
         stage('Setup CLI') {
+            when {
+                expression { !isSecurityOnlyRun() }
+            }
             steps {
                 sh """
                     echo "--- Setting up CLI for branch: ${env.EFFECTIVE_BRANCH} ---"
 
                     CLI_REPO_URL="${env.CLI_REPO_URL}"
                     CLI_REPO_PATH="\${WORKSPACE}/wm-reactnative-cli"
+                    EFFECTIVE_BRANCH="${env.EFFECTIVE_BRANCH}"
 
-                    if [ ! -d "\$CLI_REPO_PATH" ]; then
-                        echo "Cloning CLI repo (branch: ${env.EFFECTIVE_BRANCH})..."
-                        git clone -b "${env.EFFECTIVE_BRANCH}" "\$CLI_REPO_URL" "\$CLI_REPO_PATH"
+                    clone_cli_repo() {
+                        echo "Cloning CLI repo (branch: \${EFFECTIVE_BRANCH}) from \${CLI_REPO_URL}..."
+                        rm -rf "\$CLI_REPO_PATH"
+                        git clone -b "\${EFFECTIVE_BRANCH}" "\$CLI_REPO_URL" "\$CLI_REPO_PATH"
+                    }
+
+                    if [ ! -d "\$CLI_REPO_PATH/.git" ]; then
+                        clone_cli_repo
                     else
-                        echo "Updating CLI repo..."
                         cd "\$CLI_REPO_PATH"
-                        git reset --hard HEAD
-                        git clean -fd
-                        git fetch origin
+                        CURRENT_URL="\$(git remote get-url origin 2>/dev/null || true)"
+                        if [ "\$CURRENT_URL" != "\$CLI_REPO_URL" ]; then
+                            echo "CLI origin changed (\$CURRENT_URL -> \$CLI_REPO_URL). Re-cloning..."
+                            cd "\${WORKSPACE}"
+                            clone_cli_repo
+                        else
+                            echo "Updating CLI repo..."
+                            git remote set-url origin "\$CLI_REPO_URL"
+                            git reset --hard HEAD
+                            git clean -fd
+                            git fetch origin
+                            git checkout -B "\${EFFECTIVE_BRANCH}" "origin/\${EFFECTIVE_BRANCH}"
+                        fi
                     fi
 
                     cd "\$CLI_REPO_PATH"
-                    git remote set-url origin "\$CLI_REPO_URL" 2>/dev/null || true
-                    git checkout "${env.EFFECTIVE_BRANCH}"
-                    git reset --hard "origin/${env.EFFECTIVE_BRANCH}"
+                    git reset --hard "origin/\${EFFECTIVE_BRANCH}"
 
                     echo "--- Configuring npm registry for CLI repo ---"
                     "\${WORKSPACE}/scripts/configure-npm-registry.sh" "\$CLI_REPO_PATH"
@@ -262,8 +281,12 @@ pipeline {
                     echo "--- Configuring npm registry for automation project ---"
                     ./scripts/configure-npm-registry.sh "\${WORKSPACE}"
 
-                    echo "--- Linking CLI in automation project (${env.CLI_PKG_NAME}) ---"
-                    npm link ${env.CLI_PKG_NAME}
+                    if [ "${params.RUN_TARGET}" != "Security Vulnerabilities" ]; then
+                        echo "--- Linking CLI in automation project (${env.CLI_PKG_NAME}) ---"
+                        npm link ${env.CLI_PKG_NAME}
+                    else
+                        echo "--- Skipping wavemaker CLI link (security-only run) ---"
+                    fi
 
                     echo "--- Installing automation dependencies ---"
                     npm install
@@ -284,6 +307,9 @@ pipeline {
         }
 
         stage('CI Smoke Test') {
+            when {
+                expression { !isSecurityOnlyRun() }
+            }
             steps {
                 sh '''
                     chmod +x scripts/ci-smoke-test.sh
@@ -292,20 +318,12 @@ pipeline {
             }
         }
 
-        stage('Run Tests') {
+        stage('Run CLI Tests') {
+            when {
+                expression { !isSecurityOnlyRun() }
+            }
             steps {
                 script {
-                    if (isSecurityRun()) {
-                        sh """
-                            chmod +x scripts/run-security-vulnerabilities.sh
-                            SKIP_CLI_SETUP=true \\
-                            SKIP_S3_UPLOAD=true \\
-                            SECURITY_CLI_REPO_PATH="\${WORKSPACE}/wm-reactnative-cli" \\
-                            ./scripts/run-security-vulnerabilities.sh ${env.EFFECTIVE_BRANCH}
-                        """
-                        return
-                    }
-
                     def specFiles = ''
                     switch (params.RUN_TARGET) {
                         case 'All Tests':
@@ -332,10 +350,8 @@ pipeline {
                             set -a
                             . "${WORKSPACE}/.ci-env.sh"
                             set +a
-                            if [ "${params.RUN_TARGET}" != "Security Vulnerabilities" ]; then
-                                gradle --version
-                                echo "ANDROID_HOME=\${ANDROID_HOME}"
-                            fi
+                            gradle --version
+                            echo "ANDROID_HOME=\${ANDROID_HOME}"
                         fi
 
                         echo "--- RN ZIP env (masked) ---"
@@ -378,8 +394,49 @@ pipeline {
                         usernameVariable: 'BROWSERSTACK_USERNAME',
                         passwordVariable: 'BROWSERSTACK_ACCESS_KEY'
                     )]) {
-                        sh testSh
+                        if (params.RUN_TARGET == 'All Tests') {
+                            catchError(buildResult: null, stageResult: 'FAILURE') {
+                                sh testSh
+                            }
+                        } else {
+                            sh testSh
+                        }
                     }
+                }
+            }
+        }
+
+        stage('Setup Security CLI') {
+            when {
+                expression { runsSecurityScan() }
+            }
+            steps {
+                sh """
+                    chmod +x scripts/run-security-vulnerabilities.sh
+                    CLI_SETUP_ONLY=true \\
+                    SKIP_S3_UPLOAD=true \\
+                    CLI_REPO_PATH="${env.SECURITY_CLI_REPO_PATH}" \\
+                    ./scripts/run-security-vulnerabilities.sh ${env.SECURITY_EFFECTIVE_BRANCH}
+                """
+            }
+        }
+
+        stage('Run Security Vulnerabilities') {
+            when {
+                expression { runsSecurityScan() }
+            }
+            steps {
+                script {
+                    def preserveAllure = (params.RUN_TARGET == 'All Tests') ? 'true' : 'false'
+                    sh """
+                        chmod +x scripts/run-security-vulnerabilities.sh
+                        SKIP_CLI_SETUP=true \\
+                        SKIP_S3_UPLOAD=true \\
+                        PRESERVE_ALLURE_RESULTS=${preserveAllure} \\
+                        CLI_REPO_PATH="${env.SECURITY_CLI_REPO_PATH}" \\
+                        SECURITY_CLI_REPO_PATH="${env.SECURITY_CLI_REPO_PATH}" \\
+                        ./scripts/run-security-vulnerabilities.sh ${env.SECURITY_EFFECTIVE_BRANCH}
+                    """
                 }
             }
         }
@@ -403,30 +460,33 @@ pipeline {
         }
         success {
             script {
-                if (isSecurityRun()) {
-                    uploadSecurityReportsToS3()
-                } else {
+                if (!isSecurityOnlyRun()) {
                     uploadReportsToS3()
+                }
+                if (runsSecurityScan()) {
+                    uploadSecurityReportsToS3()
                 }
             }
             echo "Pipeline completed successfully — ${env.CLI_PLATFORM} CLI, branch: ${env.EFFECTIVE_BRANCH}"
         }
         failure {
             script {
-                if (isSecurityRun()) {
-                    uploadSecurityReportsToS3(nonFatal: true)
-                } else {
+                if (!isSecurityOnlyRun()) {
                     uploadReportsToS3(nonFatal: true)
+                }
+                if (runsSecurityScan()) {
+                    uploadSecurityReportsToS3(nonFatal: true)
                 }
             }
             echo "Pipeline failed — ${env.CLI_PLATFORM} CLI, branch: ${env.EFFECTIVE_BRANCH} — check archived reports."
         }
         unstable {
             script {
-                if (isSecurityRun()) {
-                    uploadSecurityReportsToS3(nonFatal: true)
-                } else {
+                if (!isSecurityOnlyRun()) {
                     uploadReportsToS3(nonFatal: true)
+                }
+                if (runsSecurityScan()) {
+                    uploadSecurityReportsToS3(nonFatal: true)
                 }
             }
         }

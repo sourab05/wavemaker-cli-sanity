@@ -62,8 +62,12 @@ fi
 
 # 5) Jenkinsfile wiring
 for needle in \
-  "isSecurityRun()" \
-  "run-security-vulnerabilities.sh" \
+  "isSecurityOnlyRun()" \
+  "runsSecurityScan()" \
+  "Run CLI Tests" \
+  "Setup Security CLI" \
+  "Run Security Vulnerabilities" \
+  "wm-reactnative-cli-security" \
   "S3_REPORT_PROJECT = 'Security Vulnerabilities'" \
   "uploadSecurityReportsToS3"; do
   if grep -q "$needle" Jenkinsfile; then
@@ -132,11 +136,22 @@ else
   fail "run-security-vulnerabilities.sh missing git clone -b"
 fi
 
-if grep -q 'git reset --hard HEAD' scripts/run-security-vulnerabilities.sh && \
-   grep -q 'git clean -fd' scripts/run-security-vulnerabilities.sh; then
-  pass "run-security-vulnerabilities.sh discards local CLI changes on update"
+if grep -q 'git checkout -B "\$SECURITY_CLI_BRANCH"' scripts/run-security-vulnerabilities.sh; then
+  pass "run-security-vulnerabilities.sh creates/resets branch from origin"
 else
-  fail "run-security-vulnerabilities.sh missing clean reset on update"
+  fail "run-security-vulnerabilities.sh missing checkout -B from origin"
+fi
+
+if grep -q 'CLI_SETUP_ONLY' scripts/run-security-vulnerabilities.sh; then
+  pass "run-security-vulnerabilities.sh supports CLI_SETUP_ONLY"
+else
+  fail "run-security-vulnerabilities.sh missing CLI_SETUP_ONLY"
+fi
+
+if grep -q 'PRESERVE_ALLURE_RESULTS' scripts/run-security-vulnerabilities.sh; then
+  pass "run-security-vulnerabilities.sh supports PRESERVE_ALLURE_RESULTS"
+else
+  fail "run-security-vulnerabilities.sh missing PRESERVE_ALLURE_RESULTS"
 fi
 
 echo ""
