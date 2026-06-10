@@ -9,7 +9,7 @@
 #   git clone https://github.com/Karthik7bk/wm-reactnative-cli.git -b SecurityVulnerabilities
 #
 # S3 path (not Cli/):
-#   s3://<bucket>/react_native/releases/<S3_VERSION>/Security Vulnerabilities/security-vulnerabilities.html
+#   s3://<bucket>/react_native/releases/<S3_VERSION>/Security Vulnerabilities/security-vulnerabilities.txt
 #
 # Env:
 #   SKIP_CLI_SETUP=true       Skip clone/link (Jenkins already ran Setup Security CLI)
@@ -39,7 +39,7 @@ PRESERVE_ALLURE_RESULTS="${PRESERVE_ALLURE_RESULTS:-false}"
 
 # Always use security-specific S3 path (do not inherit Cli/ from .env)
 export S3_REPORT_PROJECT="Security Vulnerabilities"
-export S3_REPORT_FILENAME="security-vulnerabilities.html"
+export S3_REPORT_FILENAME="security-vulnerabilities.txt"
 export SECURITY_CLI_BINARY="${SECURITY_CLI_BINARY}"
 
 if [ -n "${WORKSPACE:-}" ]; then
@@ -211,7 +211,7 @@ upload_security_report() {
     return 0
   fi
 
-  if [ ! -f "security-reports/report-meta.json" ] && [ ! -f "security-report/index.html" ]; then
+  if [ ! -f "security-reports/report-meta.json" ] && [ ! -f "security-reports/security-vulnerabilities.txt" ]; then
     echo "--- Skipping S3 upload (no security report generated) ---"
     return 0
   fi

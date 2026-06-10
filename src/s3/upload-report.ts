@@ -4,14 +4,18 @@ import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { buildS3PathPrefix } from './s3-path-builder';
 
 export interface UploadReportOptions {
-  /** Local directory containing the single-file report (e.g. allure-report) */
+  /** Local directory containing the report file */
   reportDir: string;
   /** Optional custom prefix (default: releases/<version>/Cli/) */
   prefix?: string;
+  /** Report file name inside reportDir (default: index.html) */
+  reportFile?: string;
+  /** S3 object Content-Type (default: text/html) */
+  contentType?: string;
 }
 
 /**
- * Upload the single-file index.html report to S3 with public-read ACL.
+ * Upload a single report file to S3 with public-read ACL.
  */
 export async function uploadReportToS3(
   options: UploadReportOptions
@@ -26,15 +30,17 @@ export async function uploadReportToS3(
   }
 
   const reportDir = path.resolve(options.reportDir);
-  const indexPath = path.join(reportDir, 'index.html');
+  const reportFile = options.reportFile?.trim() || 'index.html';
+  const reportPath = path.join(reportDir, reportFile);
 
-  if (!fs.existsSync(indexPath)) {
-    throw new Error(`Single-file report not found: ${indexPath}. Run 'allure generate --single-file' first.`);
+  if (!fs.existsSync(reportPath)) {
+    throw new Error(`Report file not found: ${reportPath}`);
   }
 
   const s3Prefix = options.prefix ?? buildS3PathPrefix();
-  const filename = process.env.S3_REPORT_FILENAME?.trim() || 'cli.html';
+  const filename = process.env.S3_REPORT_FILENAME?.trim() || reportFile;
   const key = s3Prefix + filename;
+  const contentType = options.contentType?.trim() || 'text/html';
 
   const client = new S3Client({ region });
 
@@ -42,8 +48,8 @@ export async function uploadReportToS3(
     new PutObjectCommand({
       Bucket: bucket,
       Key: key,
-      Body: fs.readFileSync(indexPath),
-      ContentType: 'text/html',
+      Body: fs.readFileSync(reportPath),
+      ContentType: contentType,
       ACL: 'public-read',
     })
   );

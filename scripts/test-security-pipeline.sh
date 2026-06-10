@@ -24,13 +24,13 @@ if npx tsc --noEmit; then pass "tsc --noEmit"; else fail "tsc --noEmit"; fi
 S3_OUT="$(npx ts-node -e "
 process.env.S3_REPORT_VERSION='WM-AI 1.0.0_BETA_RC4';
 process.env.S3_REPORT_PROJECT='Security Vulnerabilities';
-process.env.S3_REPORT_FILENAME='security-vulnerabilities.html';
+process.env.S3_REPORT_FILENAME='security-vulnerabilities.txt';
 import { buildS3PathPrefix } from './src/s3/s3-path-builder';
 const prefix = buildS3PathPrefix();
 const key = prefix + process.env.S3_REPORT_FILENAME;
 console.log(key);
 ")"
-EXPECTED="react_native/releases/WM-AI 1.0.0_BETA_RC4/Security Vulnerabilities/security-vulnerabilities.html"
+EXPECTED="react_native/releases/WM-AI 1.0.0_BETA_RC4/Security Vulnerabilities/security-vulnerabilities.txt"
 if [ "$S3_OUT" = "$EXPECTED" ]; then
   pass "S3 key path: $S3_OUT"
 else
@@ -87,16 +87,17 @@ echo snyk > /tmp/s.txt
 if npx ts-node -e "
 import * as fs from 'fs';
 import * as path from 'path';
-import { writeSecurityReport } from './src/utils/security-report';
+import { writeSecurityReportTxt } from './src/utils/security-report';
 const meta = JSON.parse(fs.readFileSync('$TMP/report-meta.json','utf8'));
 meta.auditReportPath='/tmp/a.txt';
 meta.snykReportPath='/tmp/s.txt';
-const out = writeSecurityReport('$TMP/out', meta);
-if (!fs.readFileSync(out,'utf8').includes('Security Vulnerabilities Report')) process.exit(1);
+const out = writeSecurityReportTxt('$TMP/out', meta);
+const body = fs.readFileSync(out,'utf8');
+if (!body.includes('Security Vulnerabilities Report') || !body.includes('=== npm audit ===')) process.exit(1);
 "; then
-  pass "writeSecurityReport HTML"
+  pass "writeSecurityReportTxt"
 else
-  fail "writeSecurityReport HTML"
+  fail "writeSecurityReportTxt"
 fi
 rm -rf "$TMP"
 

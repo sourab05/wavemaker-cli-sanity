@@ -26,6 +26,35 @@ function readReportFile(reportPath?: string): string {
   return fs.readFileSync(reportPath, 'utf-8');
 }
 
+function buildReportMetaHeader(input: SecurityReportInput): string {
+  const generatedAt = new Date().toISOString();
+  return [
+    'Security Vulnerabilities Report',
+    `Generated: ${generatedAt}`,
+    `CLI: ${input.cliBinary || 'unknown'} ${input.cliVersion || ''}`.trim(),
+    `Project: ${input.projectPath || 'n/a'}`,
+    `RN ZIP: ${input.rnZipPath || 'n/a'}`,
+    `RN ZIP source: ${input.rnZipSource || 'Studio download'}`,
+    '',
+  ].join('\n');
+}
+
+/** Build a combined plain-text report from npm audit and Snyk outputs. */
+export function buildSecurityReportText(input: SecurityReportInput): string {
+  const auditBody = readReportFile(input.auditReportPath);
+  const snykBody = readReportFile(input.snykReportPath);
+
+  return [
+    buildReportMetaHeader(input),
+    '=== npm audit ===',
+    auditBody,
+    '',
+    '=== Snyk ===',
+    snykBody,
+    '',
+  ].join('\n');
+}
+
 /** Build a single HTML page from npm audit and Snyk text reports. */
 export function buildSecurityReportHtml(input: SecurityReportInput): string {
   const auditBody = readReportFile(input.auditReportPath);
@@ -66,6 +95,17 @@ export function buildSecurityReportHtml(input: SecurityReportInput): string {
   </section>
 </body>
 </html>`;
+}
+
+export function writeSecurityReportTxt(
+  outputDir: string,
+  input: SecurityReportInput,
+  filename = 'security-vulnerabilities.txt'
+): string {
+  fs.mkdirSync(outputDir, { recursive: true });
+  const reportPath = path.join(outputDir, filename);
+  fs.writeFileSync(reportPath, buildSecurityReportText(input), 'utf-8');
+  return reportPath;
 }
 
 export function writeSecurityReport(

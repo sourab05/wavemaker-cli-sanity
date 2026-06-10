@@ -6,7 +6,7 @@ import assert from 'assert';
 import { createLogger } from '../../src/utils/Logger';
 import { getCliVariant } from '../../src/utils/cli-variant';
 import { runCommand } from '../../src/utils/run-command';
-import { writeSecurityReport } from '../../src/utils/security-report';
+import { writeSecurityReportTxt } from '../../src/utils/security-report';
 import {
   RnProjectManager,
   RnProjectArtifacts,
@@ -185,13 +185,15 @@ describe('CLI Security Vulnerabilities (npm audit + Snyk)', function () {
 
   after(function () {
     const workspaceReportsDir = path.resolve(process.cwd(), 'security-reports');
-    const securityReportDir = path.resolve(process.cwd(), 'security-report');
 
     fs.mkdirSync(workspaceReportsDir, { recursive: true });
 
+    let auditPathForMeta = auditReportPath;
+    let snykPathForMeta = snykReportPath;
+
     const meta = {
-      auditReportPath,
-      snykReportPath,
+      auditReportPath: auditPathForMeta,
+      snykReportPath: snykPathForMeta,
       cliVersion,
       cliBinary,
       projectPath: artifacts?.projectPath,
@@ -199,17 +201,15 @@ describe('CLI Security Vulnerabilities (npm audit + Snyk)', function () {
       rnZipSource: artifacts?.downloadUrl || process.env.RN_ZIP_DOWNLOAD_URL || 'Studio jobs API',
     };
 
-    fs.writeFileSync(
-      path.join(workspaceReportsDir, 'report-meta.json'),
-      JSON.stringify(meta, null, 2),
-      'utf-8'
-    );
-
     if (auditReportPath && fs.existsSync(auditReportPath)) {
-      fs.copyFileSync(auditReportPath, path.join(workspaceReportsDir, 'audit-report.txt'));
+      auditPathForMeta = path.join(workspaceReportsDir, 'audit-report.txt');
+      fs.copyFileSync(auditReportPath, auditPathForMeta);
+      meta.auditReportPath = auditPathForMeta;
     }
     if (snykReportPath && fs.existsSync(snykReportPath)) {
-      fs.copyFileSync(snykReportPath, path.join(workspaceReportsDir, 'snyk-report.txt'));
+      snykPathForMeta = path.join(workspaceReportsDir, 'snyk-report.txt');
+      fs.copyFileSync(snykReportPath, snykPathForMeta);
+      meta.snykReportPath = snykPathForMeta;
     }
     if (artifacts?.zipPath && fs.existsSync(artifacts.zipPath)) {
       fs.copyFileSync(
@@ -218,8 +218,13 @@ describe('CLI Security Vulnerabilities (npm audit + Snyk)', function () {
       );
     }
 
-    writeSecurityReport(securityReportDir, meta);
-    log.success(`Security HTML report: ${path.join(securityReportDir, 'index.html')}`);
+    const combinedReportPath = writeSecurityReportTxt(workspaceReportsDir, meta);
+    fs.writeFileSync(
+      path.join(workspaceReportsDir, 'report-meta.json'),
+      JSON.stringify(meta, null, 2),
+      'utf-8'
+    );
+    log.success(`Security report: ${combinedReportPath}`);
     log.separator('Security Vulnerabilities Scan Complete');
   });
 });
