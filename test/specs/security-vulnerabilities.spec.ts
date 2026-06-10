@@ -6,7 +6,7 @@ import assert from 'assert';
 import { createLogger } from '../../src/utils/Logger';
 import { getCliVariant } from '../../src/utils/cli-variant';
 import { runCommand } from '../../src/utils/run-command';
-import { writeSecurityReportTxt } from '../../src/utils/security-report';
+import { writeSecurityReport, writeSecurityReportTxt } from '../../src/utils/security-report';
 import {
   RnProjectManager,
   RnProjectArtifacts,
@@ -218,13 +218,17 @@ describe('CLI Security Vulnerabilities (npm audit + Snyk)', function () {
       );
     }
 
-    const combinedReportPath = writeSecurityReportTxt(workspaceReportsDir, meta);
+    writeSecurityReportTxt(workspaceReportsDir, meta);
+    const htmlReportPath = writeSecurityReport(workspaceReportsDir, meta);
+    const archiveReportDir = path.resolve(process.cwd(), 'security-report');
+    fs.mkdirSync(archiveReportDir, { recursive: true });
+    fs.copyFileSync(htmlReportPath, path.join(archiveReportDir, 'index.html'));
     fs.writeFileSync(
       path.join(workspaceReportsDir, 'report-meta.json'),
       JSON.stringify(meta, null, 2),
       'utf-8'
     );
-    log.success(`Security report: ${combinedReportPath}`);
+    log.success(`Security HTML report: ${htmlReportPath}`);
     log.separator('Security Vulnerabilities Scan Complete');
   });
 });

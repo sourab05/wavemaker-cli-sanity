@@ -29,7 +29,7 @@ def uploadSecurityReportsToS3(Map args = [:]) {
     // Override pipeline defaults (Cli/stage-ai-cli.html) — security reports use a separate S3 folder
     def cmd = """
         S3_REPORT_PROJECT='Security Vulnerabilities' \\
-        S3_REPORT_FILENAME='security-vulnerabilities.txt' \\
+        S3_REPORT_FILENAME='security-vulnerabilities.html' \\
         npx ts-node scripts/generate-and-upload-security-report.ts
     """.trim()
     if (nonFatal) {

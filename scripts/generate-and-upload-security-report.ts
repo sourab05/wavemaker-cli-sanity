@@ -1,12 +1,12 @@
 #!/usr/bin/env npx ts-node
 /**
- * Build security-vulnerabilities.txt from audit-report.txt + snyk-report.txt
+ * Build security HTML report from audit-report.txt + snyk-report.txt
  * and upload to S3 under react_native/releases/<version>/Security Vulnerabilities/
  */
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { writeSecurityReportTxt } from '../src/utils/security-report';
+import { writeSecurityReport } from '../src/utils/security-report';
 import { uploadReportToS3 } from '../src/s3/upload-report';
 
 async function main(): Promise<void> {
@@ -29,17 +29,18 @@ async function main(): Promise<void> {
   if (fs.existsSync(auditCopy)) meta.auditReportPath = auditCopy;
   if (fs.existsSync(snykCopy)) meta.snykReportPath = snykCopy;
 
-  writeSecurityReportTxt(outputDir, meta);
+  const htmlPath = writeSecurityReport(outputDir, meta);
+  console.log(`--- Security HTML report: ${htmlPath} ---`);
 
   // Always use security path (Jenkins pipeline env defaults to Cli/stage-ai-cli.html)
   process.env.S3_REPORT_PROJECT = 'Security Vulnerabilities';
-  process.env.S3_REPORT_FILENAME = 'security-vulnerabilities.txt';
+  process.env.S3_REPORT_FILENAME = 'security-vulnerabilities.html';
 
   console.log('--- Uploading security report to S3 ---');
   const url = await uploadReportToS3({
     reportDir: outputDir,
-    reportFile: 'security-vulnerabilities.txt',
-    contentType: 'text/plain',
+    reportFile: 'index.html',
+    contentType: 'text/html; charset=utf-8',
   });
   console.log(`--- Security report uploaded: ${url} ---`);
 }
