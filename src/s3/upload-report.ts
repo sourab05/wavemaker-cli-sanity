@@ -10,6 +10,8 @@ export interface UploadReportOptions {
   prefix?: string;
   /** Report file name inside reportDir (default: index.html) */
   reportFile?: string;
+  /** S3 object key filename (default: S3_REPORT_FILENAME env or reportFile) */
+  s3Filename?: string;
   /** S3 object Content-Type (default: text/html) */
   contentType?: string;
 }
@@ -38,7 +40,10 @@ export async function uploadReportToS3(
   }
 
   const s3Prefix = options.prefix ?? buildS3PathPrefix();
-  const filename = process.env.S3_REPORT_FILENAME?.trim() || reportFile;
+  const filename =
+    options.s3Filename?.trim() ||
+    process.env.S3_REPORT_FILENAME?.trim() ||
+    reportFile;
   const key = s3Prefix + filename;
   const contentType = options.contentType?.trim() || 'text/html';
 

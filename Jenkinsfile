@@ -26,12 +26,8 @@ def uploadSecurityReportsToS3(Map args = [:]) {
         echo '--- S3_VERSION is empty — skipping security report upload ---'
         return
     }
-    // Override pipeline defaults (Cli/stage-ai-cli.html) — security reports use a separate S3 folder
-    def cmd = """
-        S3_REPORT_PROJECT='Security Vulnerabilities' \\
-        S3_REPORT_FILENAME='security-vulnerabilities.html' \\
-        npx ts-node scripts/generate-and-upload-security-report.ts
-    """.trim()
+    // Security upload uses hardcoded path in generate-and-upload-security-report.ts (Security Vulnerabilities/)
+    def cmd = 'npx ts-node scripts/generate-and-upload-security-report.ts'
     if (nonFatal) {
         sh "${cmd} || echo \"Security S3 upload skipped or failed (non-fatal)\""
     } else {
@@ -165,6 +161,13 @@ pipeline {
         SECURITY_CLI_BRANCH = 'SecurityVulnerabilities'
         SECURITY_CLI_BINARY   = 'wm-reactnative'
         SECURITY_SCAN_TIMEOUT = '2700000'
+
+        // Security scan: separate Studio account + project (not WM_CLI_*)
+        SECURITY_USERNAME          = credentials('SECURITY_WM_USERNAME')
+        SECURITY_PASSWORD          = credentials('SECURITY_WM_PASSWORD')
+        SECURITY_PROJECT_ID        = credentials('SECURITY_WM_PROJECT_ID')
+        SECURITY_STUDIO_URL        = credentials('SECURITY_WM_STUDIO_URL')
+        SECURITY_STUDIO_PROJECT_ID = credentials('SECURITY_WM_STUDIO_PROJECT_ID')
     }
 
     stages {

@@ -12,8 +12,14 @@ import {
   RnProjectArtifacts,
 } from '../../src/services/RnProjectManager';
 import { getAppConfig } from '../../src/config';
+import {
+  applySecurityProjectEnv,
+  getSecurityProjectPath,
+  resolveSecurityReleaseVersion,
+} from '../../src/config/security-project';
 
 dotenv.config();
+applySecurityProjectEnv();
 
 const log = createLogger('SecurityVulnerabilitiesSpec');
 const variant = getCliVariant();
@@ -109,7 +115,13 @@ describe('CLI Security Vulnerabilities (npm audit + Snyk)', function () {
       this.skip();
     }
 
+    applySecurityProjectEnv();
+    log.info(
+      `Security project: ${process.env.SECURITY_PROJECT_ID} (${process.env.APP_NAME})`
+    );
+
     const config = getAppConfig();
+    config.projectPath = getSecurityProjectPath();
     cliBinary = resolveCliBinary();
 
     try {
@@ -123,7 +135,7 @@ describe('CLI Security Vulnerabilities (npm audit + Snyk)', function () {
     log.info(`CLI variant: ${variant.platform}`);
 
     log.step(1, 3, 'Downloading RN ZIP from Studio and extracting (RnProjectManager)...');
-    const rnManager = RnProjectManager.fromEnv();
+    const rnManager = RnProjectManager.fromSecurityEnv();
     const profileName = process.env.RN_BUILD_PROFILE || 'development';
     const outputBaseDir = path.join(
       path.dirname(config.projectPath),
@@ -199,6 +211,7 @@ describe('CLI Security Vulnerabilities (npm audit + Snyk)', function () {
       projectPath: artifacts?.projectPath,
       rnZipPath: artifacts?.zipPath,
       rnZipSource: artifacts?.downloadUrl || process.env.RN_ZIP_DOWNLOAD_URL || 'Studio jobs API',
+      releaseVersion: resolveSecurityReleaseVersion(cliVersion),
     };
 
     if (auditReportPath && fs.existsSync(auditReportPath)) {

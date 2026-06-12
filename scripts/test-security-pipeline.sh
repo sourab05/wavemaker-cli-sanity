@@ -24,13 +24,10 @@ if npx tsc --noEmit; then pass "tsc --noEmit"; else fail "tsc --noEmit"; fi
 S3_OUT="$(npx ts-node -e "
 process.env.S3_REPORT_VERSION='WM-AI 1.0.0_BETA_RC4';
 process.env.S3_REPORT_PROJECT='Security Vulnerabilities';
-process.env.S3_REPORT_FILENAME='security-vulnerabilities.txt';
-import { buildS3PathPrefix } from './src/s3/s3-path-builder';
-const prefix = buildS3PathPrefix();
-const key = prefix + process.env.S3_REPORT_FILENAME;
-console.log(key);
+import { buildSecurityS3Key } from './src/config/security-project';
+console.log(buildSecurityS3Key('WM-AI 1.0.0_BETA_RC4'));
 ")"
-EXPECTED="react_native/releases/WM-AI 1.0.0_BETA_RC4/Security Vulnerabilities/security-vulnerabilities.txt"
+EXPECTED="react_native/releases/WM-AI 1.0.0_BETA_RC4/Security Vulnerabilities/security-vulnerabilities.html"
 if [ "$S3_OUT" = "$EXPECTED" ]; then
   pass "S3 key path: $S3_OUT"
 else
@@ -68,7 +65,7 @@ for needle in \
   "Setup Security CLI" \
   "Run Security Vulnerabilities" \
   "wm-reactnative-cli-security" \
-  "S3_REPORT_PROJECT = 'Security Vulnerabilities'" \
+  "security-project.ts" \
   "uploadSecurityReportsToS3"; do
   if grep -q "$needle" Jenkinsfile; then
     pass "Jenkinsfile contains: $needle"

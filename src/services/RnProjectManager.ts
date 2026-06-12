@@ -4,6 +4,7 @@ import * as path from 'path';
 import { AuthService } from './AuthService';
 import { extractZip } from '../utils/zip-utils';
 import { createLogger } from '../utils/Logger';
+import { getSecurityStudioConfig } from '../config/security-project';
 
 const log = createLogger('RnProjectManager');
 
@@ -186,6 +187,20 @@ export class RnProjectManager {
     };
     this.baseUrl = config.baseUrl.replace(/\/$/, '');
     this.fileServiceUrl = `${this.baseUrl}/file-service`;
+  }
+
+  /** Security scan only — uses SECURITY_USERNAME / SECURITY_PASSWORD (see security-project.ts). */
+  static fromSecurityEnv(): RnProjectManager {
+    const cfg = getSecurityStudioConfig();
+    return new RnProjectManager({
+      baseUrl: cfg.baseUrl,
+      projectId: cfg.projectId,
+      studioProjectId: cfg.studioProjectId,
+      username: cfg.username,
+      password: cfg.password,
+      pollIntervalMs: parseInt(process.env.RN_BUILD_POLL_INTERVAL_MS || '5000', 10),
+      pollTimeoutMs: parseInt(process.env.RN_BUILD_POLL_TIMEOUT_MS || `${15 * 60 * 1000}`, 10),
+    });
   }
 
   static fromEnv(): RnProjectManager {

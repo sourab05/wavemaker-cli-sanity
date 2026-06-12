@@ -9,7 +9,7 @@
 #   git clone https://github.com/Karthik7bk/wm-reactnative-cli.git -b SecurityVulnerabilities
 #
 # S3 path (not Cli/):
-#   s3://<bucket>/react_native/releases/<S3_VERSION>/Security Vulnerabilities/security-vulnerabilities.txt
+#   s3://<bucket>/react_native/releases/<S3_VERSION>/Security Vulnerabilities/security-vulnerabilities.html
 #
 # Env:
 #   SKIP_CLI_SETUP=true       Skip clone/link (Jenkins already ran Setup Security CLI)
@@ -37,10 +37,12 @@ SKIP_S3_UPLOAD="${SKIP_S3_UPLOAD:-false}"
 CLI_SETUP_ONLY="${CLI_SETUP_ONLY:-false}"
 PRESERVE_ALLURE_RESULTS="${PRESERVE_ALLURE_RESULTS:-false}"
 
-# Always use security-specific S3 path (do not inherit Cli/ from .env)
+# Security project + S3 from env (see src/config/security-project.ts)
 export S3_REPORT_PROJECT="Security Vulnerabilities"
 export S3_REPORT_FILENAME="security-vulnerabilities.html"
-export SECURITY_CLI_BINARY="${SECURITY_CLI_BINARY}"
+export SECURITY_CLI_REPO_URL="${SECURITY_CLI_REPO_URL:-https://github.com/Karthik7bk/wm-reactnative-cli.git}"
+export SECURITY_CLI_BRANCH="${SECURITY_CLI_BRANCH:-SecurityVulnerabilities}"
+export SECURITY_CLI_BINARY="${SECURITY_CLI_BINARY:-wm-reactnative}"
 
 if [ -n "${WORKSPACE:-}" ]; then
   echo "--- Jenkins environment detected. Using WORKSPACE: $WORKSPACE ---"
@@ -55,6 +57,33 @@ fi
 echo "CLI Repo Path set to: $CLI_REPO_PATH"
 echo "Automation Repo Path set to: $AUTOMATION_REPO_PATH"
 
+if [ -z "${SECURITY_USERNAME:-}" ] || [ -z "${SECURITY_PASSWORD:-}" ]; then
+  echo "ERROR: SECURITY_USERNAME and SECURITY_PASSWORD are required."
+  echo "  Security uses separate Studio credentials — not WM_USERNAME / WM_PASSWORD."
+  echo "  Set them in .env or export before running this script."
+  exit 1
+fi
+
+if [ -z "${SECURITY_PROJECT_ID:-}" ]; then
+  echo "ERROR: SECURITY_PROJECT_ID is required (WMPRJ build trigger id)."
+  echo "  Set in .env or Jenkins credential SECURITY_WM_PROJECT_ID."
+  echo "  Security does not use WM_PROJECT_ID / WM_CLI_PROJECT_ID."
+  exit 1
+fi
+
+if [ -z "${SECURITY_STUDIO_URL:-}" ]; then
+  echo "ERROR: SECURITY_STUDIO_URL is required."
+  echo "  Set in .env or Jenkins credential SECURITY_WM_STUDIO_URL."
+  echo "  Security does not use STUDIO_URL / WM_CLI_STUDIO_URL."
+  exit 1
+fi
+
+export PROJECT_ID="${SECURITY_PROJECT_ID}"
+export APP_NAME="${SECURITY_APP_NAME:-StyleWorkSpaceAutomation}"
+export APP_PACKAGE="${SECURITY_APP_PACKAGE:-com.wavemaker.styleworkspaceautomation}"
+export RN_BUILD_PROFILE="${SECURITY_RN_BUILD_PROFILE:-development}"
+export RN_PROJECT_FOLDER="${SECURITY_RN_PROJECT_FOLDER:-StyleWorkSpaceAutomation-native-mobile_0.0.1}"
+
 echo "============================================================"
 echo "  Security Vulnerabilities Scan"
 echo "============================================================"
@@ -63,6 +92,10 @@ echo "  CLI branch:  $SECURITY_CLI_BRANCH"
 echo "  CLI binary:  $SECURITY_CLI_BINARY"
 echo "  S3 project:  $S3_REPORT_PROJECT"
 echo "  S3 file:     $S3_REPORT_FILENAME"
+echo "  Project ID:  ${SECURITY_PROJECT_ID}"
+echo "  Studio user: ${SECURITY_USERNAME}"
+echo "  Studio URL:  ${SECURITY_STUDIO_URL}"
+echo "  Jobs API id: ${SECURITY_STUDIO_PROJECT_ID:-not set}"
 echo "============================================================"
 
 chmod +x "$ROOT/scripts/configure-npm-registry.sh"
