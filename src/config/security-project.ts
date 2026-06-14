@@ -131,13 +131,38 @@ export function applySecurityProjectEnv(): void {
   }
 }
 
+const SEMVER_PATTERN = /\d+\.\d+\.\d+(?:[-+][\w.]+)?/;
+
+/** Extract a semver from noisy CLI `--version` output (may be multi-line). */
+export function parseCliVersionString(raw?: string): string {
+  if (!raw?.trim()) return 'unknown';
+  const lines = raw.trim().split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  for (const line of lines) {
+    const match = line.match(SEMVER_PATTERN);
+    if (match) return match[0];
+  }
+  const match = raw.match(SEMVER_PATTERN);
+  return match ? match[0] : lines[0] || 'unknown';
+}
+
+/** Reject multi-line or CLI banner text mistakenly used as an S3 release folder name. */
+export function isValidReleaseVersion(value?: string): boolean {
+  if (!value?.trim()) return false;
+  if (value.includes('\n') || value.includes('\r')) return false;
+  if (/wm\s*=/i.test(value) || /reactnative-cli/i.test(value)) return false;
+  return true;
+}
+
+/** S3 release folder: Jenkins S3_VERSION first, then valid meta fallback, then default. */
 export function resolveSecurityReleaseVersion(fallback?: string): string {
-  return (
-    fallback?.trim() ||
-    process.env.S3_REPORT_VERSION?.trim() ||
-    process.env.S3_VERSION?.trim() ||
-    SECURITY_S3_CONFIG.defaultReleaseVersion
-  );
+  const fromEnv =
+    process.env.S3_REPORT_VERSION?.trim() || process.env.S3_VERSION?.trim();
+  if (fromEnv) return fromEnv;
+
+  const fb = fallback?.trim();
+  if (fb && isValidReleaseVersion(fb)) return fb;
+
+  return SECURITY_S3_CONFIG.defaultReleaseVersion;
 }
 
 export function buildSecurityS3Prefix(releaseVersion?: string): string {

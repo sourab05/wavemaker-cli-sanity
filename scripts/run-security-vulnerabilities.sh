@@ -184,6 +184,41 @@ if [ "$CLI_SETUP_ONLY" = "true" ]; then
   exit 0
 fi
 
+ensure_snyk_cli() {
+  export PATH="$AUTOMATION_REPO_PATH/node_modules/.bin:${PATH:-}"
+
+  if command -v snyk >/dev/null 2>&1; then
+    echo "--- Snyk CLI found: $(snyk --version 2>/dev/null | head -1) ---"
+    return 0
+  fi
+
+  echo "--- Snyk CLI not found — installing snyk via npm (local) ---"
+  cd "$AUTOMATION_REPO_PATH"
+  npm install --no-save snyk
+  export PATH="$AUTOMATION_REPO_PATH/node_modules/.bin:${PATH:-}"
+
+  if ! command -v snyk >/dev/null 2>&1; then
+    echo "--- Local install failed — trying global snyk install ---"
+    npm install -g snyk
+    export PATH="$(npm root -g 2>/dev/null)/../bin:${PATH:-}"
+  fi
+
+  if ! command -v snyk >/dev/null 2>&1; then
+    echo "ERROR: Snyk CLI unavailable after install. Ensure npm bin is on PATH."
+    exit 1
+  fi
+  echo "--- Snyk CLI ready: $(snyk --version 2>/dev/null | head -1) ---"
+}
+
+if [ -n "${SNYK_TOKEN:-}" ]; then
+  export SNYK_API_TOKEN="$SNYK_TOKEN"
+  ensure_snyk_cli
+  # Pre-authenticate so the security CLI auth check succeeds
+  snyk config set api="$SNYK_TOKEN" >/dev/null 2>&1 || true
+else
+  echo "--- SNYK_TOKEN not set — Snyk scan will be skipped in spec ---"
+fi
+
 echo "--- Running security vulnerabilities spec ---"
 echo "--- RN ZIP will be downloaded from Studio via RnProjectManager (same as app-build) ---"
 export RN_DOWNLOAD_FROM_STUDIO="${RN_DOWNLOAD_FROM_STUDIO:-true}"
@@ -218,6 +253,8 @@ RUN_LOCAL="${RUN_LOCAL:-false}" \
 HEADLESS="${HEADLESS:-true}" \
 SECURITY_CLI_BINARY="$SECURITY_CLI_BINARY" \
 SECURITY_CLI_REPO_PATH="${SECURITY_CLI_REPO_PATH:-$CLI_REPO_PATH}" \
+SNYK_API_TOKEN="${SNYK_API_TOKEN:-${SNYK_TOKEN:-}}" \
+PATH="${AUTOMATION_REPO_PATH}/node_modules/.bin:${PATH:-}" \
 npx mocha \
   --reporter allure-mocha \
   --require ts-node/register \

@@ -34,6 +34,31 @@ else
   fail "S3 key mismatch. got: $S3_OUT expected: $EXPECTED"
 fi
 
+# 3b) S3_VERSION wins over malformed CLI version string
+S3_PRIO="$(npx ts-node -e "
+process.env.S3_VERSION='WM-AI 1.0.0_BETA_RC4';
+delete process.env.S3_REPORT_VERSION;
+import { resolveSecurityReleaseVersion } from './src/config/security-project';
+const bad = 'wm = reactnative-cli version:  1.9.1\n1.9.1';
+console.log(resolveSecurityReleaseVersion(bad));
+")"
+if [ "$S3_PRIO" = "WM-AI 1.0.0_BETA_RC4" ]; then
+  pass "resolveSecurityReleaseVersion prefers S3_VERSION over CLI banner"
+else
+  fail "S3 version priority got: $S3_PRIO"
+fi
+
+# 3c) parseCliVersionString extracts semver from noisy output
+CLI_VER="$(npx ts-node -e "
+import { parseCliVersionString } from './src/config/security-project';
+console.log(parseCliVersionString('wm = reactnative-cli version:  1.9.1\n1.9.1'));
+")"
+if [ "$CLI_VER" = "1.9.1" ]; then
+  pass "parseCliVersionString → $CLI_VER"
+else
+  fail "parseCliVersionString got: $CLI_VER"
+fi
+
 # 4) run-cli-tests.sh delegates to security script
 if grep -q 'exec "\$SCRIPT_DIR/scripts/run-security-vulnerabilities.sh"' run-cli-tests.sh; then
   pass "run-cli-tests.sh exec delegation present"
@@ -65,7 +90,7 @@ for needle in \
   "Setup Security CLI" \
   "Run Security Vulnerabilities" \
   "wm-reactnative-cli-security" \
-  "security-project.ts" \
+  "SECURITY_WM_USERNAME" \
   "uploadSecurityReportsToS3"; do
   if grep -q "$needle" Jenkinsfile; then
     pass "Jenkinsfile contains: $needle"
@@ -144,6 +169,12 @@ if grep -q 'CLI_SETUP_ONLY' scripts/run-security-vulnerabilities.sh; then
   pass "run-security-vulnerabilities.sh supports CLI_SETUP_ONLY"
 else
   fail "run-security-vulnerabilities.sh missing CLI_SETUP_ONLY"
+fi
+
+if grep -q 'ensure_snyk_cli' scripts/run-security-vulnerabilities.sh; then
+  pass "run-security-vulnerabilities.sh installs Snyk CLI when missing"
+else
+  fail "run-security-vulnerabilities.sh missing ensure_snyk_cli"
 fi
 
 if grep -q 'PRESERVE_ALLURE_RESULTS' scripts/run-security-vulnerabilities.sh; then

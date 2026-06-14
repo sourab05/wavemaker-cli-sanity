@@ -15,6 +15,7 @@ import { getAppConfig } from '../../src/config';
 import {
   applySecurityProjectEnv,
   getSecurityProjectPath,
+  parseCliVersionString,
   resolveSecurityReleaseVersion,
 } from '../../src/config/security-project';
 
@@ -32,6 +33,25 @@ function resolveCliBinary(): string {
     process.env.CLI_BINARY?.trim() ||
     variant.binaryName
   );
+}
+
+function resolveCliVersion(cliBinaryName: string): string {
+  const repoPath = process.env.SECURITY_CLI_REPO_PATH?.trim();
+  if (repoPath) {
+    try {
+      const pkgPath = path.join(repoPath, 'package.json');
+      const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
+      if (pkg.version) return String(pkg.version);
+    } catch {
+      log.warn(`Could not read version from ${repoPath}/package.json`);
+    }
+  }
+  try {
+    const raw = execSync(`${cliBinaryName} --version`, { encoding: 'utf-8' });
+    return parseCliVersionString(raw);
+  } catch {
+    return 'unknown';
+  }
 }
 
 function resolveCliAuditCommand(subcommand: 'audit' | 'snyk', targetPath: string): string {
@@ -125,9 +145,9 @@ describe('CLI Security Vulnerabilities (npm audit + Snyk)', function () {
     cliBinary = resolveCliBinary();
 
     try {
-      cliVersion = execSync(`${cliBinary} --version`, { encoding: 'utf-8' }).trim();
+      cliVersion = resolveCliVersion(cliBinary);
     } catch {
-      log.warn(`Could not read version from ${cliBinary} --version`);
+      log.warn(`Could not read version from ${cliBinary}`);
     }
 
     log.separator('Security Vulnerabilities Scan');
@@ -211,7 +231,7 @@ describe('CLI Security Vulnerabilities (npm audit + Snyk)', function () {
       projectPath: artifacts?.projectPath,
       rnZipPath: artifacts?.zipPath,
       rnZipSource: artifacts?.downloadUrl || process.env.RN_ZIP_DOWNLOAD_URL || 'Studio jobs API',
-      releaseVersion: resolveSecurityReleaseVersion(cliVersion),
+      releaseVersion: resolveSecurityReleaseVersion(),
     };
 
     if (auditReportPath && fs.existsSync(auditReportPath)) {

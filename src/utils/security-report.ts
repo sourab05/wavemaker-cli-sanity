@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { resolveSecurityReleaseVersion } from '../config/security-project';
 
 // ─── Public types ─────────────────────────────────────────────────────────────
 
@@ -233,13 +234,7 @@ interface ReportTableRow {
 }
 
 function resolveReleaseVersion(input: SecurityReportInput): string {
-  return (
-    input.releaseVersion?.trim() ||
-    process.env.S3_REPORT_VERSION?.trim() ||
-    process.env.S3_VERSION?.trim() ||
-    input.cliVersion?.trim() ||
-    'Release'
-  );
+  return resolveSecurityReleaseVersion(input.releaseVersion);
 }
 
 function formatFooterDate(): string {
