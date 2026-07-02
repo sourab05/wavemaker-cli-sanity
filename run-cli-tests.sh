@@ -65,6 +65,10 @@ if [ "${3:-}" = "security" ] || [ "${1:-}" = "security" ]; then
   if [ "${1:-}" != "security" ] && [ -n "${1:-}" ]; then
     SECURITY_BRANCH="$1"
   fi
+  if [ "${PROJECT_MODE:-Existing Project}" = "New Project" ] && [ ! -f "$SCRIPT_DIR/.ci-project-env.sh" ]; then
+    echo "--- Provisioning new Studio project for security scan ---"
+    PROJECT_MODE="New Project" npx ts-node "$SCRIPT_DIR/scripts/provision-studio-project.ts"
+  fi
   echo "--- Delegating to security vulnerabilities script (branch: $SECURITY_BRANCH) ---"
   exec "$SCRIPT_DIR/scripts/run-security-vulnerabilities.sh" "$SECURITY_BRANCH"
 fi
@@ -208,6 +212,15 @@ if [ "$LINKED_VERSION" != "$EXPECTED_CLI_VERSION" ]; then
 fi
 
 echo "--- Running automation tests (PACKAGE_MANAGER=$PKG_MANAGER) ---"
+
+if [ "${PROJECT_MODE:-Existing Project}" = "New Project" ]; then
+  echo "--- Provisioning new Studio project (PROJECT_MODE=New Project) ---"
+  PROJECT_MODE="New Project" npx ts-node "$AUTOMATION_REPO_PATH/scripts/provision-studio-project.ts"
+  set -a
+  # shellcheck disable=SC1091
+  . "$AUTOMATION_REPO_PATH/.ci-project-env.sh"
+  set +a
+fi
 
 # Clean previous allure results so reports only contain current run
 rm -rf allure-results allure-report

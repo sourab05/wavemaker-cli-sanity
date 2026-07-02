@@ -1,4 +1,5 @@
 import * as path from 'path';
+import { applyProvisionedProjectToSecurityEnv } from '../utils/studio-project-env';
 
 /**
  * Security scan defaults (Studio project ids come from SECURITY_* env / Jenkins — not hardcoded).
@@ -90,8 +91,10 @@ export const SECURITY_S3_CONFIG = {
   defaultReleaseVersion: 'WM-AI 1.0.0_BETA_RC4',
 } as const;
 
-/** Apply security-only env. Does not read WM_USERNAME / WM_PASSWORD / WM_PROJECT_ID. */
+/** Apply security-only env. Does not read WM_USERNAME / WM_PASSWORD / WM_PROJECT_ID unless PROJECT_MODE=New Project. */
 export function applySecurityProjectEnv(): void {
+  applyProvisionedProjectToSecurityEnv();
+
   const studioUrl = resolveSecurityStudioUrl();
 
   if (process.env.SECURITY_PROJECT_ID?.trim()) {

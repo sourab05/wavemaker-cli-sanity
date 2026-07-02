@@ -123,6 +123,35 @@ else
 fi
 rm -rf "$TMP"
 
+if grep -q 'PROJECT_MODE' Jenkinsfile; then
+  pass "Jenkinsfile contains PROJECT_MODE parameter"
+else
+  fail "Jenkinsfile missing PROJECT_MODE parameter"
+fi
+
+if grep -q 'provision-studio-project' Jenkinsfile; then
+  pass "Jenkinsfile provisions Studio project for New Project mode"
+else
+  fail "Jenkinsfile missing provision-studio-project stage"
+fi
+
+# 3d) studio project env helpers
+ENV_HELPERS="$(npx ts-node -e "
+import { generateStudioProjectName, deriveAppPackage, deriveRnProjectFolder, isNewProjectMode } from './src/utils/studio-project-env';
+const name = generateStudioProjectName();
+if (!/^CliAuto[a-zA-Z0-9]+$/.test(name)) process.exit(1);
+if (!deriveAppPackage(name).startsWith('com.wavemaker.')) process.exit(1);
+if (!deriveRnProjectFolder(name).endsWith('-native-mobile_0.0.1')) process.exit(1);
+process.env.PROJECT_MODE = 'New Project';
+if (!isNewProjectMode()) process.exit(1);
+console.log('ok');
+")"
+if [ "$ENV_HELPERS" = "ok" ]; then
+  pass "studio-project-env helpers"
+else
+  fail "studio-project-env helpers"
+fi
+
 # 7) prepareProjectWithZip (Studio download — uses .env)
 if [ -f "$ROOT/.env" ]; then
   echo "--- prepareProjectWithZip (live Studio) ---"

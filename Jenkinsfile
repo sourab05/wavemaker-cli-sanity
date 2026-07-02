@@ -35,6 +35,10 @@ def uploadSecurityReportsToS3(Map args = [:]) {
     }
 }
 
+def shouldProvisionNewProject() {
+    return params.PROJECT_MODE == 'New Project' && params.RUN_TARGET != 'AppChef Version'
+}
+
 def isSecurityOnlyRun() {
     return params.RUN_TARGET == 'Security Vulnerabilities'
 }
@@ -66,6 +70,11 @@ pipeline {
             name: 'RUN_TARGET',
             choices: ['All Tests', 'AppChef Version', 'Sync & Web Preview', 'App Build', 'Security Vulnerabilities'],
             description: 'Which test suite to run. All Tests runs CLI suite first, then Security Vulnerabilities (separate fork + S3 path).'
+        )
+        choice(
+            name: 'PROJECT_MODE',
+            choices: ['Existing Project', 'New Project'],
+            description: 'Existing uses Jenkins WM_CLI_* / SECURITY_WM_* project IDs. New creates one fresh NATIVE_MOBILE project (random name) used by both CLI tests and Security Vulnerabilities — WM_CLI_* login only.'
         )
         string(
             name: 'CLI_REPO_URL',
@@ -152,6 +161,7 @@ pipeline {
         HEADLESS        = 'true'
         SYNC_TIMEOUT    = '900000'
         PACKAGE_MANAGER = "${params.PKG_MANAGER}"
+        PROJECT_MODE    = "${params.PROJECT_MODE}"
         APP_PACKAGE     = "${params.APP_PACKAGE}"
         APP_NAME        = "${params.APP_NAME}"
         APP_VERIFICATION_ID = "${params.APP_VERIFICATION_ID}"
@@ -309,6 +319,26 @@ pipeline {
             }
         }
 
+        stage('Provision Studio Project') {
+            when {
+                expression { shouldProvisionNewProject() }
+            }
+            steps {
+                sh '''
+                    chmod +x scripts/source-ci-project-env.sh
+                    PROJECT_MODE="New Project" npx ts-node scripts/provision-studio-project.ts
+                    set -a
+                    . "${WORKSPACE}/.ci-project-env.sh"
+                    set +a
+                    echo "--- Provisioned project (prefixes only) ---"
+                    echo "WM_PROJECT_ID prefix: $(echo "$WM_PROJECT_ID" | cut -c1-12)..."
+                    echo "STUDIO_PROJECT_ID prefix: $(echo "$STUDIO_PROJECT_ID" | cut -c1-12)..."
+                    echo "APP_NAME=$APP_NAME"
+                    echo "APP_PACKAGE=$APP_PACKAGE"
+                '''
+            }
+        }
+
         stage('Setup Android Build Tools') {
             when {
                 expression { params.RUN_TARGET in ['App Build', 'All Tests'] }
@@ -327,7 +357,8 @@ pipeline {
             }
             steps {
                 sh '''
-                    chmod +x scripts/ci-smoke-test.sh
+                    chmod +x scripts/source-ci-project-env.sh scripts/ci-smoke-test.sh
+                    . scripts/source-ci-project-env.sh
                     ./scripts/ci-smoke-test.sh
                 '''
             }
@@ -367,6 +398,13 @@ pipeline {
                             set +a
                             gradle --version
                             echo "ANDROID_HOME=\${ANDROID_HOME}"
+                        fi
+
+                        if [ -f "${WORKSPACE}/.ci-project-env.sh" ]; then
+                            echo "--- Loading provisioned Studio project env ---"
+                            set -a
+                            . "${WORKSPACE}/.ci-project-env.sh"
+                            set +a
                         fi
 
                         echo "--- RN ZIP env (masked) ---"
@@ -427,7 +465,8 @@ pipeline {
             }
             steps {
                 sh """
-                    chmod +x scripts/run-security-vulnerabilities.sh
+                    chmod +x scripts/run-security-vulnerabilities.sh scripts/source-ci-project-env.sh
+                    PROJECT_MODE="${params.PROJECT_MODE}" \\
                     CLI_SETUP_ONLY=true \\
                     SKIP_S3_UPLOAD=true \\
                     CLI_REPO_PATH="${env.SECURITY_CLI_REPO_PATH}" \\
@@ -448,7 +487,8 @@ pipeline {
                     patchSecurityCliUpdateNotifier()
                     def preserveAllure = (params.RUN_TARGET == 'All Tests') ? 'true' : 'false'
                     sh """
-                        chmod +x scripts/run-security-vulnerabilities.sh
+                        chmod +x scripts/run-security-vulnerabilities.sh scripts/source-ci-project-env.sh
+                        PROJECT_MODE="${params.PROJECT_MODE}" \\
                         SKIP_CLI_SETUP=true \\
                         SKIP_S3_UPLOAD=true \\
                         PRESERVE_ALLURE_RESULTS=${preserveAllure} \\

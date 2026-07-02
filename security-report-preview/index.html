@@ -1,0 +1,770 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Vulnerability Report</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #f0f2f5; color: #1a1a2e; padding: 2rem;
+  }
+  .container { max-width: 1200px; margin: 0 auto; }
+  h1 { font-size: 1.8rem; margin-bottom: 0.3rem; color: #1a1a2e; }
+  .subtitle { color: #666; margin-bottom: 1.5rem; font-size: 0.95rem; }
+  .section-title {
+    font-size: 1.1rem; font-weight: 600; color: #1a1a2e;
+    margin: 2rem 0 0.8rem; padding-bottom: 0.4rem;
+    border-bottom: 2px solid #ddd;
+  }
+  .filter-bar { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+  .src-btn {
+    background: #fff; border: 1px solid #ddd; color: #555;
+    border-radius: 20px; padding: 5px 14px; cursor: pointer; font-size: 0.82rem;
+  }
+  .src-btn:hover { border-color: #1a1a2e; color: #1a1a2e; }
+  .src-btn.active { background: #1a1a2e; border-color: #1a1a2e; color: #fff; font-weight: 600; }
+  .table-wrapper {
+    background: #fff; border-radius: 12px; padding: 1.5rem;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.08); overflow-x: auto;
+    margin-bottom: 1.5rem;
+  }
+  table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+  thead th {
+    background: #1a1a2e; color: #fff; padding: 12px 16px;
+    text-align: left; font-weight: 600;
+  }
+  thead th:first-child { border-radius: 8px 0 0 0; }
+  thead th:last-child { border-radius: 0 8px 0 0; }
+  tbody td { padding: 11px 16px; border-bottom: 1px solid #eee; }
+  tbody tr:hover { background: #f7f8fc; }
+  tbody tr:nth-child(even) { background: #fafbfd; }
+  tbody tr:nth-child(even):hover { background: #f0f1f5; }
+  tbody tr.hidden { display: none; }
+  .badge {
+    display: inline-block; padding: 3px 10px; border-radius: 20px;
+    font-size: 0.78rem; font-weight: 600; text-transform: uppercase;
+  }
+  .high { background: #fde8e8; color: #c0392b; }
+  .moderate { background: #fef3e2; color: #d68910; }
+  .fix-available { color: #27ae60; font-weight: 500; }
+  .fix-available code { background: #eef9f2; padding: 2px 6px; border-radius: 4px; font-size: 0.85em; }
+  .no-fix { color: #c0392b; font-weight: 500; }
+  .summary-cards { display: flex; gap: 1rem; margin-bottom: 1.8rem; flex-wrap: wrap; }
+  .card {
+    flex: 1; min-width: 140px; background: #fff; border-radius: 10px;
+    padding: 1.2rem; text-align: center;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  }
+  .card .num { font-size: 2rem; font-weight: 700; }
+  .card .label { font-size: 0.82rem; color: #888; margin-top: 0.2rem; }
+  .card.high-card .num { color: #c0392b; }
+  .card.med-card .num { color: #d68910; }
+  .card.crit-card .num { color: #8b0000; }
+  .card.total-card .num { color: #1a1a2e; }
+  footer { text-align: center; margin-top: 2rem; color: #999; font-size: 0.8rem; }
+  code { font-family: 'Fira Code', 'Courier New', monospace; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>Vulnerability Report</h1>
+  <p class="subtitle">Security audit findings &mdash; npm audit &amp; Snyk &mdash; generated June 2026</p>
+
+  <div class="summary-cards">
+    <div class="card total-card">
+      <div class="num">92</div>
+      <div class="label">Total Issues</div>
+    </div>
+    <div class="card crit-card"><div class="num">20</div><div class="label">Critical</div></div>
+    <div class="card high-card">
+      <div class="num">69</div>
+      <div class="label">High Severity</div>
+    </div>
+    <div class="card med-card">
+      <div class="num">23</div>
+      <div class="label">Medium / Moderate</div>
+    </div>
+  </div>
+
+  <div class="section-title">12.0.0 Release</div>
+  <div class="filter-bar"><button class="src-btn active" data-src="all">All (92)</button><button class="src-btn" data-src="both">★ Both (6)</button><button class="src-btn" data-src="audit">npm audit (43)</button><button class="src-btn" data-src="snyk">Snyk (43)</button></div>
+  <div class="table-wrapper">
+    <table id="vuln-table">
+      <thead>
+        <tr>
+          <th>Issue Description</th>
+          <th>Severity</th>
+          <th>Package</th>
+          <th>Affected Version</th>
+          <th>Fixed Version / Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        
+        <tr data-src="snyk">
+          <td>HTTP Response Splitting</td>
+          <td><span class="badge high">Critical</span></td>
+          <td><code>axios</code></td>
+          <td>1.0.0 - 1.15.2</td>
+          <td class="fix-available">0.31.1, 1.15.1</td>
+        </tr>
+        <tr data-src="snyk">
+          <td>Prototype Pollution</td>
+          <td><span class="badge high">Critical</span></td>
+          <td><code>axios</code></td>
+          <td>1.0.0 - 1.15.2</td>
+          <td class="fix-available">0.31.1, 1.15.1</td>
+        </tr>
+        <tr data-src="snyk">
+          <td>Prototype Pollution</td>
+          <td><span class="badge high">Critical</span></td>
+          <td><code>axios</code></td>
+          <td>1.0.0 - 1.15.2</td>
+          <td class="fix-available">1.15.2</td>
+        </tr>
+        <tr data-src="audit">
+          <td>fast-xml-parser has an entity encoding bypass via regex injection in DOCTYPE entity names</td>
+          <td><span class="badge high">Critical</span></td>
+          <td><code>fast-xml-parser</code></td>
+          <td>&lt;=5.6.0</td>
+          <td class="fix-available">Fix available via <code>npm audit fix --force</code></td>
+        </tr>
+        <tr data-src="audit">
+          <td>fast-xml-parser affected by DoS through entity expansion in DOCTYPE (no expansion limit)</td>
+          <td><span class="badge high">Critical</span></td>
+          <td><code>fast-xml-parser</code></td>
+          <td>&lt;=5.6.0</td>
+          <td class="fix-available">Fix available via <code>npm audit fix --force</code></td>
+        </tr>
+        <tr data-src="audit">
+          <td>fast-xml-parser has stack overflow in XMLBuilder with preserveOrder</td>
+          <td><span class="badge high">Critical</span></td>
+          <td><code>fast-xml-parser</code></td>
+          <td>&lt;=5.6.0</td>
+          <td class="fix-available">Fix available via <code>npm audit fix --force</code></td>
+        </tr>
+        <tr data-src="audit">
+          <td>fast-xml-parser affected by numeric entity expansion bypassing all entity expansion limits (incomplete fix for CVE-2026-26278)</td>
+          <td><span class="badge high">Critical</span></td>
+          <td><code>fast-xml-parser</code></td>
+          <td>&lt;=5.6.0</td>
+          <td class="fix-available">Fix available via <code>npm audit fix --force</code></td>
+        </tr>
+        <tr data-src="audit">
+          <td>Entity Expansion Limits Bypassed When Set to Zero Due to JavaScript Falsy Evaluation in fast-xml-parser</td>
+          <td><span class="badge high">Critical</span></td>
+          <td><code>fast-xml-parser</code></td>
+          <td>&lt;=5.6.0</td>
+          <td class="fix-available">Fix available via <code>npm audit fix --force</code></td>
+        </tr>
+        <tr data-src="audit">
+          <td>fast-xml-parser XMLBuilder: XML Comment and CDATA Injection via Unescaped Delimiters</td>
+          <td><span class="badge high">Critical</span></td>
+          <td><code>fast-xml-parser</code></td>
+          <td>&lt;=5.6.0</td>
+          <td class="fix-available">Fix available via <code>npm audit fix --force</code></td>
+        </tr>
+        <tr data-src="audit">
+          <td>Handlebars.js has JavaScript Injection via AST Type Confusion by tampering @partial-block</td>
+          <td><span class="badge high">Critical</span></td>
+          <td><code>handlebars</code></td>
+          <td>4.0.0 - 4.7.8</td>
+          <td class="fix-available">Fix available via <code>npm audit fix</code></td>
+        </tr>
+        <tr data-src="audit">
+          <td>Handlebars.js has JavaScript Injection via AST Type Confusion</td>
+          <td><span class="badge high">Critical</span></td>
+          <td><code>handlebars</code></td>
+          <td>4.0.0 - 4.7.8</td>
+          <td class="fix-available">Fix available via <code>npm audit fix</code></td>
+        </tr>
+        <tr data-src="audit">
+          <td>Handlebars.js has Prototype Pollution Leading to XSS through Partial Template Injection</td>
+          <td><span class="badge high">Critical</span></td>
+          <td><code>handlebars</code></td>
+          <td>4.0.0 - 4.7.8</td>
+          <td class="fix-available">Fix available via <code>npm audit fix</code></td>
+        </tr>
+        <tr data-src="audit">
+          <td>Handlebars.js has a Prototype Method Access Control Gap via Missing __lookupSetter__ Blocklist Entry</td>
+          <td><span class="badge high">Critical</span></td>
+          <td><code>handlebars</code></td>
+          <td>4.0.0 - 4.7.8</td>
+          <td class="fix-available">Fix available via <code>npm audit fix</code></td>
+        </tr>
+        <tr data-src="audit">
+          <td>Handlebars.js has a Property Access Validation Bypass in container.lookup</td>
+          <td><span class="badge high">Critical</span></td>
+          <td><code>handlebars</code></td>
+          <td>4.0.0 - 4.7.8</td>
+          <td class="fix-available">Fix available via <code>npm audit fix</code></td>
+        </tr>
+        <tr data-src="audit">
+          <td>Handlebars.js has JavaScript Injection via AST Type Confusion when passing an object as dynamic partial</td>
+          <td><span class="badge high">Critical</span></td>
+          <td><code>handlebars</code></td>
+          <td>4.0.0 - 4.7.8</td>
+          <td class="fix-available">Fix available via <code>npm audit fix</code></td>
+        </tr>
+        <tr data-src="audit">
+          <td>Handlebars.js has Denial of Service via Malformed Decorator Syntax in Template Compilation</td>
+          <td><span class="badge high">Critical</span></td>
+          <td><code>handlebars</code></td>
+          <td>4.0.0 - 4.7.8</td>
+          <td class="fix-available">Fix available via <code>npm audit fix</code></td>
+        </tr>
+        <tr data-src="audit">
+          <td>Handlebars.js has JavaScript Injection in CLI Precompiler via Unescaped Names and Options</td>
+          <td><span class="badge high">Critical</span></td>
+          <td><code>handlebars</code></td>
+          <td>4.0.0 - 4.7.8</td>
+          <td class="fix-available">Fix available via <code>npm audit fix</code></td>
+        </tr>
+        <tr data-src="snyk">
+          <td>Access of Resource Using Incompatible Type ('Type Confusion')</td>
+          <td><span class="badge high">Critical</span></td>
+          <td><code>handlebars</code></td>
+          <td>4.0.0 - 4.7.8</td>
+          <td class="fix-available">4.7.9</td>
+        </tr>
+        <tr data-src="snyk">
+          <td>Access of Resource Using Incompatible Type ('Type Confusion')</td>
+          <td><span class="badge high">Critical</span></td>
+          <td><code>handlebars</code></td>
+          <td>4.0.0 - 4.7.8</td>
+          <td class="fix-available">4.7.9</td>
+        </tr>
+        <tr data-src="snyk">
+          <td>Access of Resource Using Incompatible Type ('Type Confusion')</td>
+          <td><span class="badge high">Critical</span></td>
+          <td><code>handlebars</code></td>
+          <td>4.0.0 - 4.7.8</td>
+          <td class="fix-available">4.7.9</td>
+        </tr>
+        <tr data-src="audit">
+          <td>Angular has XSS Vulnerability via Unsanitized SVG Script Attributes</td>
+          <td><span class="badge high">High</span></td>
+          <td><code>@angular/compiler</code></td>
+          <td>&lt;=18.2.14</td>
+          <td class="no-fix">No fix available</td>
+        </tr>
+        <tr data-src="audit">
+          <td>Angular Stored XSS Vulnerability via SVG Animation, SVG URL and MathML Attributes</td>
+          <td><span class="badge high">High</span></td>
+          <td><code>@angular/compiler</code></td>
+          <td>&lt;=18.2.14</td>
+          <td class="no-fix">No fix available</td>
+        </tr>
+        <tr data-src="snyk">
+          <td>Cross-site Scripting (XSS)</td>
+          <td><span class="badge high">High</span></td>
+          <td><code>@angular/compiler</code></td>
+          <td>&lt;=18.2.14</td>
+          <td class="fix-available">19.2.17, 20.3.15, 21.0.2</td>
+        </tr>
+        <tr data-src="both">
+          <td>Axios: CRLF Injection in multipart/form-data body via unsanitized blob.type in formDataToStream</td>
+          <td><span class="badge high">High</span></td>
+          <td><code>axios</code></td>
+          <td>1.0.0 - 1.15.2</td>
+          <td class="fix-available">1.15.1</td>
+        </tr>
+        <tr data-src="both">
+          <td>Axios: Prototype Pollution Gadgets - Response Tampering, Data Exfiltration, and Request Hijacking</td>
+          <td><span class="badge high">High</span></td>
+          <td><code>axios</code></td>
+          <td>1.0.0 - 1.15.2</td>
+          <td class="fix-available">0.30.3, 1.13.5</td>
+        </tr>
+        <tr data-src="both">
+          <td>Axios: Regular Expression Denial of Service (ReDoS) via Cookie Name Injection</td>
+          <td><span class="badge high">High</span></td>
+          <td><code>axios</code></td>
+          <td>1.0.0 - 1.15.2</td>
+          <td class="fix-available">0.32.0, 1.16.0</td>
+        </tr>
+        <tr data-src="both">
+          <td>Allocation of Resources Without Limits or Throttling in Axios</td>
+          <td><span class="badge high">High</span></td>
+          <td><code>axios</code></td>
+          <td>1.0.0 - 1.15.2</td>
+          <td class="fix-available">0.30.0, 1.12.0</td>
+        </tr>
+        <tr data-src="audit">
+          <td>Axios is vulnerable to DoS attack through lack of data size check</td>
+          <td><span class="badge high">High</span></td>
+          <td><code>axios</code></td>
+          <td>1.0.0 - 1.15.2</td>
+          <td class="fix-available">Fix available via <code>npm audit fix</code></td>
+        </tr>
+        <tr data-src="audit">
+          <td>Axios has a NO_PROXY Hostname Normalization Bypass that Leads to SSRF</td>
+          <td><span class="badge high">High</span></td>
+          <td><code>axios</code></td>
+          <td>1.0.0 - 1.15.2</td>
+          <td class="fix-available">Fix available via <code>npm audit fix</code></td>
+        </tr>
+        <tr data-src="audit">
+          <td>Axios: Authentication Bypass via Prototype Pollution Gadget in `validateStatus` Merge Strategy</td>
+          <td><span class="badge high">High</span></td>
+          <td><code>axios</code></td>
+          <td>1.0.0 - 1.15.2</td>
+          <td class="fix-available">Fix available via <code>npm audit fix</code></td>
+        </tr>
+        <tr data-src="audit">
+          <td>Axios: Incomplete Fix for CVE-2025-62718 — NO_PROXY Protection Bypassed via RFC 1122 Loopback Subnet (127.0.0.0/8) in Axios 1.15.0</td>
+          <td><span class="badge high">High</span></td>
+          <td><code>axios</code></td>
+          <td>1.0.0 - 1.15.2</td>
+          <td class="fix-available">Fix available via <code>npm audit fix</code></td>
+        </tr>
+        <tr data-src="audit">
+          <td>Axios: Invisible JSON Response Tampering via Prototype Pollution Gadget in `parseReviver`</td>
+          <td><span class="badge high">High</span></td>
+          <td><code>axios</code></td>
+          <td>1.0.0 - 1.15.2</td>
+          <td class="fix-available">Fix available via <code>npm audit fix</code></td>
+        </tr>
+        <tr data-src="audit">
+          <td>Axios: Null Byte Injection via Reverse-Encoding in AxiosURLSearchParams</td>
+          <td><span class="badge high">High</span></td>
+          <td><code>axios</code></td>
+          <td>1.0.0 - 1.15.2</td>
+          <td class="fix-available">Fix available via <code>npm audit fix</code></td>
+        </tr>
+        <tr data-src="audit">
+          <td>Axios: no_proxy bypass via IP alias allows SSRF</td>
+          <td><span class="badge high">High</span></td>
+          <td><code>axios</code></td>
+          <td>1.0.0 - 1.15.2</td>
+          <td class="fix-available">Fix available via <code>npm audit fix</code></td>
+        </tr>
+        <tr data-src="audit">
+          <td>Axios' HTTP adapter-streamed uploads bypass maxBodyLength when maxRedirects: 0</td>
+          <td><span class="badge high">High</span></td>
+          <td><code>axios</code></td>
+          <td>1.0.0 - 1.15.2</td>
+          <td class="fix-available">Fix available via <code>npm audit fix</code></td>
+        </tr>
+        <tr data-src="audit">
+          <td>Axios: HTTP adapter streamed responses bypass maxContentLength</td>
+          <td><span class="badge high">High</span></td>
+          <td><code>axios</code></td>
+          <td>1.0.0 - 1.15.2</td>
+          <td class="fix-available">Fix available via <code>npm audit fix</code></td>
+        </tr>
+        <tr data-src="audit">
+          <td>Axios: Header Injection via Prototype Pollution</td>
+          <td><span class="badge high">High</span></td>
+          <td><code>axios</code></td>
+          <td>1.0.0 - 1.15.2</td>
+          <td class="fix-available">Fix available via <code>npm audit fix</code></td>
+        </tr>
+        <tr data-src="audit">
+          <td>Axios: XSRF Token Cross-Origin Leakage via Prototype Pollution Gadget in `withXSRFToken` Boolean Coercion</td>
+          <td><span class="badge high">High</span></td>
+          <td><code>axios</code></td>
+          <td>1.0.0 - 1.15.2</td>
+          <td class="fix-available">Fix available via <code>npm audit fix</code></td>
+        </tr>
+        <tr data-src="audit">
+          <td>Axios is Vulnerable to Denial of Service via __proto__ Key in mergeConfig</td>
+          <td><span class="badge high">High</span></td>
+          <td><code>axios</code></td>
+          <td>1.0.0 - 1.15.2</td>
+          <td class="fix-available">Fix available via <code>npm audit fix</code></td>
+        </tr>
+        <tr data-src="audit">
+          <td>Axios has prototype pollution read-side gadgets in HTTP adapter that allow credential injection and request hijacking</td>
+          <td><span class="badge high">High</span></td>
+          <td><code>axios</code></td>
+          <td>1.0.0 - 1.15.2</td>
+          <td class="fix-available">Fix available via <code>npm audit fix</code></td>
+        </tr>
+        <tr data-src="audit">
+          <td>Axios has Unrestricted Cloud Metadata Exfiltration via Header Injection Chain</td>
+          <td><span class="badge high">High</span></td>
+          <td><code>axios</code></td>
+          <td>1.0.0 - 1.15.2</td>
+          <td class="fix-available">Fix available via <code>npm audit fix</code></td>
+        </tr>
+        <tr data-src="audit">
+          <td>axios's shouldBypassProxy does not recognize IPv4-mapped IPv6 addresses, allowing NO_PROXY bypass (incomplete fix for CVE-2025-62718)</td>
+          <td><span class="badge high">High</span></td>
+          <td><code>axios</code></td>
+          <td>1.0.0 - 1.15.2</td>
+          <td class="fix-available">Fix available via <code>npm audit fix</code></td>
+        </tr>
+        <tr data-src="audit">
+          <td>axios has DoS &amp; Header Injection via Prototype Pollution Read-Side Gadgets in axios merge functions</td>
+          <td><span class="badge high">High</span></td>
+          <td><code>axios</code></td>
+          <td>1.0.0 - 1.15.2</td>
+          <td class="fix-available">Fix available via <code>npm audit fix</code></td>
+        </tr>
+        <tr data-src="audit">
+          <td>axios Vulnerable to Credential Theft and Response Hijacking via Prototype Pollution Gadget in Config Merge</td>
+          <td><span class="badge high">High</span></td>
+          <td><code>axios</code></td>
+          <td>1.0.0 - 1.15.2</td>
+          <td class="fix-available">Fix available via <code>npm audit fix</code></td>
+        </tr>
+        <tr data-src="audit">
+          <td>axios Vulnerable to Full Man-in-the-Middle via Prototype Pollution Gadget in `config.proxy`</td>
+          <td><span class="badge high">High</span></td>
+          <td><code>axios</code></td>
+          <td>1.0.0 - 1.15.2</td>
+          <td class="fix-available">Fix available via <code>npm audit fix</code></td>
+        </tr>
+        <tr data-src="audit">
+          <td>Axios: Proxy-Authorization Credential Leak to Origin Server Across HTTP-to-HTTPS Redirect in Axios Node.js HTTP Adapter</td>
+          <td><span class="badge high">High</span></td>
+          <td><code>axios</code></td>
+          <td>1.0.0 - 1.15.2</td>
+          <td class="fix-available">Fix available via <code>npm audit fix</code></td>
+        </tr>
+        <tr data-src="audit">
+          <td>Axios: Proxy-Authorization header leaks to redirect target when proxy is re-evaluated to direct connection</td>
+          <td><span class="badge high">High</span></td>
+          <td><code>axios</code></td>
+          <td>1.0.0 - 1.15.2</td>
+          <td class="fix-available">Fix available via <code>npm audit fix</code></td>
+        </tr>
+        <tr data-src="audit">
+          <td>Axios: unbounded recursion in toFormData causes DoS via deeply nested request data</td>
+          <td><span class="badge high">High</span></td>
+          <td><code>axios</code></td>
+          <td>1.0.0 - 1.15.2</td>
+          <td class="fix-available">Fix available via <code>npm audit fix</code></td>
+        </tr>
+        <tr data-src="snyk">
+          <td>HTTP Response Splitting</td>
+          <td><span class="badge high">High</span></td>
+          <td><code>axios</code></td>
+          <td>1.0.0 - 1.15.2</td>
+          <td class="fix-available">0.31.0, 1.15.0</td>
+        </tr>
+        <tr data-src="snyk">
+          <td>Improperly Controlled Modification of Dynamically-Determined Object Attributes</td>
+          <td><span class="badge high">High</span></td>
+          <td><code>axios</code></td>
+          <td>1.0.0 - 1.15.2</td>
+          <td class="fix-available">1.15.2</td>
+        </tr>
+        <tr data-src="snyk">
+          <td>Uncontrolled Recursion</td>
+          <td><span class="badge high">High</span></td>
+          <td><code>axios</code></td>
+          <td>1.0.0 - 1.15.2</td>
+          <td class="fix-available">0.31.1, 1.15.1</td>
+        </tr>
+        <tr data-src="snyk">
+          <td>Prototype Pollution</td>
+          <td><span class="badge high">High</span></td>
+          <td><code>axios</code></td>
+          <td>1.0.0 - 1.15.2</td>
+          <td class="fix-available">0.31.1, 1.15.2</td>
+        </tr>
+        <tr data-src="snyk">
+          <td>Server-side Request Forgery (SSRF)</td>
+          <td><span class="badge high">High</span></td>
+          <td><code>axios</code></td>
+          <td>1.0.0 - 1.15.2</td>
+          <td class="fix-available">0.32.0, 1.16.0</td>
+        </tr>
+        <tr data-src="snyk">
+          <td>Prototype Pollution</td>
+          <td><span class="badge high">High</span></td>
+          <td><code>axios</code></td>
+          <td>1.0.0 - 1.15.2</td>
+          <td class="fix-available">1.16.0</td>
+        </tr>
+        <tr data-src="snyk">
+          <td>Insertion of Sensitive Information Into Sent Data</td>
+          <td><span class="badge high">High</span></td>
+          <td><code>axios</code></td>
+          <td>1.0.0 - 1.15.2</td>
+          <td class="fix-available">0.32.0, 1.16.0</td>
+        </tr>
+        <tr data-src="snyk">
+          <td>XML Entity Expansion</td>
+          <td><span class="badge high">High</span></td>
+          <td><code>fast-xml-parser</code></td>
+          <td>&lt;=5.6.0</td>
+          <td class="fix-available">4.5.4, 5.3.6</td>
+        </tr>
+        <tr data-src="snyk">
+          <td>Incorrect Regular Expression</td>
+          <td><span class="badge high">High</span></td>
+          <td><code>fast-xml-parser</code></td>
+          <td>&lt;=5.6.0</td>
+          <td class="fix-available">4.5.4, 5.3.5</td>
+        </tr>
+        <tr data-src="snyk">
+          <td>XML Entity Expansion</td>
+          <td><span class="badge high">High</span></td>
+          <td><code>fast-xml-parser</code></td>
+          <td>&lt;=5.6.0</td>
+          <td class="fix-available">5.5.6</td>
+        </tr>
+        <tr data-src="snyk">
+          <td>Improper Validation of Specified Quantity in Input</td>
+          <td><span class="badge high">High</span></td>
+          <td><code>fast-xml-parser</code></td>
+          <td>&lt;=5.6.0</td>
+          <td class="fix-available">5.5.7</td>
+        </tr>
+        <tr data-src="snyk">
+          <td>Improper Encoding or Escaping of Output</td>
+          <td><span class="badge high">High</span></td>
+          <td><code>handlebars</code></td>
+          <td>4.0.0 - 4.7.8</td>
+          <td class="fix-available">4.7.9</td>
+        </tr>
+        <tr data-src="snyk">
+          <td>Improper Check for Unusual or Exceptional Conditions</td>
+          <td><span class="badge high">High</span></td>
+          <td><code>handlebars</code></td>
+          <td>4.0.0 - 4.7.8</td>
+          <td class="fix-available">4.7.9</td>
+        </tr>
+        <tr data-src="both">
+          <td>lodash vulnerable to Prototype Pollution via array path bypass in `_.unset` and `_.omit`</td>
+          <td><span class="badge high">High</span></td>
+          <td><code>lodash</code></td>
+          <td>&lt;=4.17.23</td>
+          <td class="fix-available">4.17.23</td>
+        </tr>
+        <tr data-src="audit">
+          <td>lodash vulnerable to Code Injection via `_.template` imports key names</td>
+          <td><span class="badge high">High</span></td>
+          <td><code>lodash</code></td>
+          <td>&lt;=4.17.23</td>
+          <td class="fix-available">Fix available via <code>npm audit fix</code></td>
+        </tr>
+        <tr data-src="audit">
+          <td>Lodash has Prototype Pollution Vulnerability in `_.unset` and `_.omit` functions</td>
+          <td><span class="badge high">High</span></td>
+          <td><code>lodash</code></td>
+          <td>&lt;=4.17.23</td>
+          <td class="fix-available">Fix available via <code>npm audit fix</code></td>
+        </tr>
+        <tr data-src="snyk">
+          <td>Arbitrary Code Injection</td>
+          <td><span class="badge high">High</span></td>
+          <td><code>lodash</code></td>
+          <td>&lt;=4.17.23</td>
+          <td class="fix-available">4.18.1</td>
+        </tr>
+        <tr data-src="both">
+          <td>lodash vulnerable to Prototype Pollution via array path bypass in `_.unset` and `_.omit`</td>
+          <td><span class="badge high">High</span></td>
+          <td><code>lodash-es</code></td>
+          <td>&lt;=4.17.23</td>
+          <td class="fix-available">4.17.23</td>
+        </tr>
+        <tr data-src="audit">
+          <td>lodash vulnerable to Code Injection via `_.template` imports key names</td>
+          <td><span class="badge high">High</span></td>
+          <td><code>lodash-es</code></td>
+          <td>&lt;=4.17.23</td>
+          <td class="fix-available">Fix available via <code>npm audit fix</code></td>
+        </tr>
+        <tr data-src="audit">
+          <td>Lodash has Prototype Pollution Vulnerability in `_.unset` and `_.omit` functions</td>
+          <td><span class="badge high">High</span></td>
+          <td><code>lodash-es</code></td>
+          <td>&lt;=4.17.23</td>
+          <td class="fix-available">Fix available via <code>npm audit fix</code></td>
+        </tr>
+        <tr data-src="snyk">
+          <td>Arbitrary Code Injection</td>
+          <td><span class="badge high">High</span></td>
+          <td><code>lodash-es</code></td>
+          <td>&lt;=4.17.23</td>
+          <td class="fix-available">4.18.1</td>
+        </tr>
+        <tr data-src="snyk">
+          <td>Unintended Proxy or Intermediary ('Confused Deputy')</td>
+          <td><span class="badge moderate">Medium</span></td>
+          <td><code>axios</code></td>
+          <td>1.0.0 - 1.15.2</td>
+          <td class="fix-available">0.31.0, 1.15.0</td>
+        </tr>
+        <tr data-src="snyk">
+          <td>Improper Encoding or Escaping of Output</td>
+          <td><span class="badge moderate">Medium</span></td>
+          <td><code>axios</code></td>
+          <td>1.0.0 - 1.15.2</td>
+          <td class="fix-available">0.31.1, 1.15.1</td>
+        </tr>
+        <tr data-src="snyk">
+          <td>Server-side Request Forgery (SSRF)</td>
+          <td><span class="badge moderate">Medium</span></td>
+          <td><code>axios</code></td>
+          <td>1.0.0 - 1.15.2</td>
+          <td class="fix-available">0.31.1, 1.15.1</td>
+        </tr>
+        <tr data-src="snyk">
+          <td>Allocation of Resources Without Limits or Throttling</td>
+          <td><span class="badge moderate">Medium</span></td>
+          <td><code>axios</code></td>
+          <td>1.0.0 - 1.15.2</td>
+          <td class="fix-available">0.31.1, 1.15.1</td>
+        </tr>
+        <tr data-src="snyk">
+          <td>Allocation of Resources Without Limits or Throttling</td>
+          <td><span class="badge moderate">Medium</span></td>
+          <td><code>axios</code></td>
+          <td>1.0.0 - 1.15.2</td>
+          <td class="fix-available">0.31.1, 1.15.1</td>
+        </tr>
+        <tr data-src="snyk">
+          <td>Insertion of Sensitive Information Into Sent Data</td>
+          <td><span class="badge moderate">Medium</span></td>
+          <td><code>axios</code></td>
+          <td>1.0.0 - 1.15.2</td>
+          <td class="fix-available">0.31.1, 1.15.1</td>
+        </tr>
+        <tr data-src="snyk">
+          <td>Prototype Pollution</td>
+          <td><span class="badge moderate">Medium</span></td>
+          <td><code>axios</code></td>
+          <td>1.0.0 - 1.15.2</td>
+          <td class="fix-available">0.31.1, 1.15.1</td>
+        </tr>
+        <tr data-src="snyk">
+          <td>Prototype Pollution</td>
+          <td><span class="badge moderate">Medium</span></td>
+          <td><code>axios</code></td>
+          <td>1.0.0 - 1.15.2</td>
+          <td class="fix-available">0.32.0, 1.16.0</td>
+        </tr>
+        <tr data-src="snyk">
+          <td>Allocation of Resources Without Limits or Throttling</td>
+          <td><span class="badge moderate">Medium</span></td>
+          <td><code>axios</code></td>
+          <td>1.0.0 - 1.15.2</td>
+          <td class="fix-available">1.16.0</td>
+        </tr>
+        <tr data-src="snyk">
+          <td>Insertion of Sensitive Information Into Sent Data</td>
+          <td><span class="badge moderate">Medium</span></td>
+          <td><code>axios</code></td>
+          <td>1.0.0 - 1.15.2</td>
+          <td class="fix-available">0.32.0, 1.16.0</td>
+        </tr>
+        <tr data-src="snyk">
+          <td>Buffer Overflow</td>
+          <td><span class="badge moderate">Medium</span></td>
+          <td><code>fast-xml-parser</code></td>
+          <td>&lt;=5.6.0</td>
+          <td class="fix-available">4.5.4, 5.3.8</td>
+        </tr>
+        <tr data-src="snyk">
+          <td>Time-of-check Time-of-use (TOCTOU) Race Condition</td>
+          <td><span class="badge moderate">Medium</span></td>
+          <td><code>handlebars</code></td>
+          <td>4.0.0 - 4.7.8</td>
+          <td class="fix-available">4.7.9</td>
+        </tr>
+        <tr data-src="snyk">
+          <td>Prototype Pollution</td>
+          <td><span class="badge moderate">Medium</span></td>
+          <td><code>handlebars</code></td>
+          <td>4.0.0 - 4.7.8</td>
+          <td class="fix-available">4.7.9</td>
+        </tr>
+        <tr data-src="snyk">
+          <td>Missing Release of Resource after Effective Lifetime</td>
+          <td><span class="badge moderate">Medium</span></td>
+          <td><code>inflight</code></td>
+          <td>1.0.6</td>
+          <td class="no-fix">No upgrade or patch available</td>
+        </tr>
+        <tr data-src="snyk">
+          <td>Prototype Pollution</td>
+          <td><span class="badge moderate">Medium</span></td>
+          <td><code>lodash</code></td>
+          <td>&lt;=4.17.23</td>
+          <td class="fix-available">4.18.1</td>
+        </tr>
+        <tr data-src="snyk">
+          <td>Prototype Pollution</td>
+          <td><span class="badge moderate">Medium</span></td>
+          <td><code>lodash-es</code></td>
+          <td>&lt;=4.17.23</td>
+          <td class="fix-available">4.18.1</td>
+        </tr>
+        <tr data-src="audit">
+          <td>PostCSS has XSS via Unescaped &lt;/style&gt; in its CSS Stringify Output</td>
+          <td><span class="badge moderate">Medium</span></td>
+          <td><code>postcss</code></td>
+          <td>&lt;8.5.10</td>
+          <td class="fix-available">Fix available via <code>npm audit fix --force</code></td>
+        </tr>
+        <tr data-src="snyk">
+          <td>Cross-site Scripting (XSS)</td>
+          <td><span class="badge moderate">Medium</span></td>
+          <td><code>postcss</code></td>
+          <td>&lt;8.5.10</td>
+          <td class="fix-available">Fix available via <code>npm audit fix --force</code></td>
+        </tr>
+        <tr data-src="audit">
+          <td>uuid: Missing buffer bounds check in v3/v5/v6 when buf is provided</td>
+          <td><span class="badge moderate">Medium</span></td>
+          <td><code>uuid</code></td>
+          <td>&lt;11.1.1</td>
+          <td class="fix-available">Fix available via <code>npm audit fix --force</code></td>
+        </tr>
+        <tr data-src="snyk">
+          <td>Improper Validation of Specified Index, Position, or Offset in Input</td>
+          <td><span class="badge moderate">Medium</span></td>
+          <td><code>uuid</code></td>
+          <td>&lt;11.1.1</td>
+          <td class="fix-available">Fix available via <code>npm audit fix --force</code></td>
+        </tr>
+        <tr data-src="snyk">
+          <td>Cross-site Scripting (XSS)</td>
+          <td><span class="badge moderate">Low</span></td>
+          <td><code>@angular/compiler</code></td>
+          <td>&lt;=18.2.14</td>
+          <td class="fix-available">19.2.18, 20.3.16, 21.0.7, 21.1.0-rc.0</td>
+        </tr>
+        <tr data-src="snyk">
+          <td>Cross-site Scripting (XSS)</td>
+          <td><span class="badge moderate">Low</span></td>
+          <td><code>@angular/compiler</code></td>
+          <td>&lt;=18.2.14</td>
+          <td class="fix-available">19.2.20, 20.3.18, 21.2.4, 22.0.0-next.3</td>
+        </tr>
+        <tr data-src="snyk">
+          <td>Prototype Pollution</td>
+          <td><span class="badge moderate">Low</span></td>
+          <td><code>handlebars</code></td>
+          <td>4.0.0 - 4.7.8</td>
+          <td class="fix-available">4.7.9</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <footer>Generated from security audit data &mdash; June 2026</footer>
+</div>
+<script>
+  document.querySelectorAll('.src-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.src-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      const src = btn.dataset.src;
+      document.querySelectorAll('#vuln-table tbody tr').forEach(row => {
+        const show = src === 'all' || row.dataset.src === src;
+        row.classList.toggle('hidden', !show);
+      });
+    });
+  });
+</script>
+</body>
+</html>

@@ -28,6 +28,39 @@ if [ -f "$ROOT/.env" ]; then
   eval "$(bash "$ROOT/scripts/load-dotenv.sh" "$ROOT/.env")"
 fi
 
+apply_provisioned_project_for_security() {
+  if [ "${PROJECT_MODE:-Existing Project}" != "New Project" ]; then
+    return 0
+  fi
+
+  chmod +x "$ROOT/scripts/source-ci-project-env.sh"
+  # shellcheck disable=SC1091
+  . "$ROOT/scripts/source-ci-project-env.sh"
+
+  if [ -z "${WM_PROJECT_ID:-}" ] || [ -z "${STUDIO_PROJECT_ID:-}" ]; then
+    echo "ERROR: PROJECT_MODE=New Project but provisioned project IDs are missing."
+    echo "  Expected .ci-project-env.sh from Provision Studio Project stage."
+    echo "  Run: PROJECT_MODE=New Project npx ts-node scripts/provision-studio-project.ts"
+    exit 1
+  fi
+
+  export SECURITY_PROJECT_ID="$WM_PROJECT_ID"
+  export SECURITY_STUDIO_PROJECT_ID="$STUDIO_PROJECT_ID"
+  export SECURITY_USERNAME="${WM_USERNAME:-${WMO_USER:-}}"
+  export SECURITY_PASSWORD="${WM_PASSWORD:-${WMO_PASS:-}}"
+  export SECURITY_STUDIO_URL="${STUDIO_URL:-${STUDIO_BASE_URL:-}}"
+  export SECURITY_APP_NAME="${APP_NAME:-SecurityVulnerabilities}"
+  export SECURITY_APP_PACKAGE="${APP_PACKAGE:-com.wavemaker.cli}"
+  export SECURITY_RN_PROJECT_FOLDER="${RN_PROJECT_FOLDER:-${APP_NAME}-native-mobile_0.0.1}"
+
+  echo "--- Security scan: using provisioned New Project (shared with CLI suite) ---"
+  echo "  Project ID:  ${SECURITY_PROJECT_ID}"
+  echo "  Jobs API id: ${SECURITY_STUDIO_PROJECT_ID}"
+  echo "  App name:    ${SECURITY_APP_NAME}"
+}
+
+apply_provisioned_project_for_security
+
 SECURITY_CLI_REPO_URL="${SECURITY_CLI_REPO_URL:-https://github.com/Karthik7bk/wm-reactnative-cli.git}"
 SECURITY_CLI_BRANCH="${1:-${SECURITY_CLI_BRANCH:-SecurityVulnerabilities}}"
 SECURITY_CLI_BINARY="${SECURITY_CLI_BINARY:-wm-reactnative}"
@@ -59,22 +92,31 @@ echo "Automation Repo Path set to: $AUTOMATION_REPO_PATH"
 
 if [ -z "${SECURITY_USERNAME:-}" ] || [ -z "${SECURITY_PASSWORD:-}" ]; then
   echo "ERROR: SECURITY_USERNAME and SECURITY_PASSWORD are required."
-  echo "  Security uses separate Studio credentials — not WM_USERNAME / WM_PASSWORD."
-  echo "  Set them in .env or export before running this script."
+  if [ "${PROJECT_MODE:-Existing Project}" = "New Project" ]; then
+    echo "  New Project mode uses WM_CLI_USERNAME / WM_CLI_PASSWORD (WM_USERNAME / WM_PASSWORD)."
+  else
+    echo "  Set SECURITY_WM_USERNAME / SECURITY_WM_PASSWORD in Jenkins, or SECURITY_* in .env."
+  fi
   exit 1
 fi
 
 if [ -z "${SECURITY_PROJECT_ID:-}" ]; then
   echo "ERROR: SECURITY_PROJECT_ID is required (WMPRJ build trigger id)."
-  echo "  Set in .env or Jenkins credential SECURITY_WM_PROJECT_ID."
-  echo "  Security does not use WM_PROJECT_ID / WM_CLI_PROJECT_ID."
+  if [ "${PROJECT_MODE:-Existing Project}" = "New Project" ]; then
+    echo "  Provision the project first (Jenkins Provision stage or provision-studio-project.ts)."
+  else
+    echo "  Set SECURITY_WM_PROJECT_ID in Jenkins or SECURITY_PROJECT_ID in .env."
+  fi
   exit 1
 fi
 
 if [ -z "${SECURITY_STUDIO_URL:-}" ]; then
   echo "ERROR: SECURITY_STUDIO_URL is required."
-  echo "  Set in .env or Jenkins credential SECURITY_WM_STUDIO_URL."
-  echo "  Security does not use STUDIO_URL / WM_CLI_STUDIO_URL."
+  if [ "${PROJECT_MODE:-Existing Project}" = "New Project" ]; then
+    echo "  New Project mode uses WM_CLI_STUDIO_URL (STUDIO_URL)."
+  else
+    echo "  Set SECURITY_WM_STUDIO_URL in Jenkins or SECURITY_STUDIO_URL in .env."
+  fi
   exit 1
 fi
 

@@ -49,9 +49,8 @@ security-reports/
 coverage/
 .nyc_output/
 
-# Temporary files
-tmp/
-temp/
+.ci-env.sh
+.ci-project-env.sh
 *.tmp
 
 # Google OAuth session cache (local only)
