@@ -3,11 +3,11 @@
 # Exit immediately if a command exits with a non-zero status.
 set -e
 
-# --- Load STUDIO_URL from .env for early variant detection ---
+# --- Load Studio / project mode from .env for early variant detection ---
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-if [ -f "$SCRIPT_DIR/.env" ] && [ -z "$STUDIO_URL" ]; then
-  STUDIO_URL="$(grep -E '^STUDIO_URL=' "$SCRIPT_DIR/.env" | head -1 | cut -d'=' -f2-)"
-  export STUDIO_URL
+if [ -f "$SCRIPT_DIR/.env" ]; then
+  # shellcheck disable=SC1090
+  eval "$(bash "$SCRIPT_DIR/scripts/load-dotenv.sh" "$SCRIPT_DIR/.env")"
 fi
 
 # --- CLI variant detection from STUDIO_URL ---
@@ -65,11 +65,13 @@ if [ "${3:-}" = "security" ] || [ "${1:-}" = "security" ]; then
   if [ "${1:-}" != "security" ] && [ -n "${1:-}" ]; then
     SECURITY_BRANCH="$1"
   fi
+  echo "--- PROJECT_MODE: ${PROJECT_MODE:-Existing Project} ---"
   if [ "${PROJECT_MODE:-Existing Project}" = "New Project" ] && [ ! -f "$SCRIPT_DIR/.ci-project-env.sh" ]; then
     echo "--- Provisioning new Studio project for security scan ---"
     PROJECT_MODE="New Project" npx ts-node "$SCRIPT_DIR/scripts/provision-studio-project.ts"
   fi
   echo "--- Delegating to security vulnerabilities script (branch: $SECURITY_BRANCH) ---"
+  export PROJECT_MODE="${PROJECT_MODE:-Existing Project}"
   exec "$SCRIPT_DIR/scripts/run-security-vulnerabilities.sh" "$SECURITY_BRANCH"
 fi
 

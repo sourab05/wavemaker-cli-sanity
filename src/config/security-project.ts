@@ -63,13 +63,11 @@ export function getSecurityStudioConfig(): SecurityStudioConfig {
 
   const projectId = resolveSecurityProjectId();
   const studioProjectId = process.env.SECURITY_STUDIO_PROJECT_ID?.trim() || '';
-  const directZipUrl = process.env.RN_ZIP_DOWNLOAD_URL?.trim();
 
-  if (!directZipUrl && !studioProjectId) {
+  if (!studioProjectId) {
     throw new Error(
       'Missing SECURITY_STUDIO_PROJECT_ID (jobs API proj-xxx id).\n' +
-        '  Set SECURITY_STUDIO_PROJECT_ID in .env or Jenkins credential SECURITY_WM_STUDIO_PROJECT_ID,\n' +
-        '  or set RN_ZIP_DOWNLOAD_URL for a direct ZIP fallback.'
+        '  Set SECURITY_STUDIO_PROJECT_ID in .env or Jenkins credential SECURITY_WM_STUDIO_PROJECT_ID.'
     );
   }
 

@@ -111,11 +111,6 @@ pipeline {
             defaultValue: 'WM-AI 1.0.0_BETA_RC4',
             description: 'S3 release folder under react_native/releases/<S3_VERSION>/ (e.g. WM-AI 1.0.0_BETA_RC4, 12.0.0)'
         )
-        string(
-            name: 'RN_ZIP_DOWNLOAD_URL',
-            defaultValue: '',
-            description: 'Optional last-resort ZIP (file-service URL or id). Leave empty to resolve nativeMobileZipId dynamically from Studio jobs API.'
-        )
     }
 
     tools {
@@ -149,7 +144,6 @@ pipeline {
         WM_NPM_REGISTRY = 'https://repository.wavemaker.com/repository/wavemaker-npm-repo/'
 
         RN_BUILD_PROFILE = 'development'
-        RN_ZIP_DOWNLOAD_URL = "${params.RN_ZIP_DOWNLOAD_URL}"
         RN_BUILD_EMPTY_JOBS_POLL_LIMIT = '15'
         BROWSERSTACK_VERIFY_SOFT_FAIL = 'true'
 
@@ -411,7 +405,6 @@ pipeline {
                         echo "STUDIO_URL=\${STUDIO_URL}"
                         echo "WM_PROJECT_ID prefix: \$(echo \"\$WM_PROJECT_ID\" | cut -c1-8)..."
                         echo "STUDIO_PROJECT_ID prefix: \$(echo \"\$STUDIO_PROJECT_ID\" | cut -c1-8)..."
-                        if [ -n "\$RN_ZIP_DOWNLOAD_URL" ]; then echo "RN_ZIP_DOWNLOAD_URL set: yes"; else echo "RN_ZIP_DOWNLOAD_URL set: no"; fi
                         echo "RN_BUILD_EMPTY_JOBS_POLL_LIMIT=\${RN_BUILD_EMPTY_JOBS_POLL_LIMIT:-12}"
                         echo "APP_VERIFICATION_ID=\${APP_VERIFICATION_ID}"
                         echo "WEB_PREVIEW_XPATH=\${WEB_PREVIEW_XPATH}"

@@ -93,9 +93,12 @@ echo "Automation Repo Path set to: $AUTOMATION_REPO_PATH"
 if [ -z "${SECURITY_USERNAME:-}" ] || [ -z "${SECURITY_PASSWORD:-}" ]; then
   echo "ERROR: SECURITY_USERNAME and SECURITY_PASSWORD are required."
   if [ "${PROJECT_MODE:-Existing Project}" = "New Project" ]; then
-    echo "  New Project mode uses WM_CLI_USERNAME / WM_CLI_PASSWORD (WM_USERNAME / WM_PASSWORD)."
+    echo "  New Project mode uses WM_USERNAME / WM_PASSWORD from .env (mapped after provision)."
   else
-    echo "  Set SECURITY_WM_USERNAME / SECURITY_WM_PASSWORD in Jenkins, or SECURITY_* in .env."
+    echo "  Existing Project: set SECURITY_USERNAME / SECURITY_PASSWORD in .env,"
+    echo "  or run with New Project mode:"
+    echo "    PROJECT_MODE=\"New Project\" ./run-cli-tests.sh SecurityVulnerabilities npm security"
+    echo "  (or add PROJECT_MODE=New Project to .env — uses WM_USERNAME / WM_PASSWORD)."
   fi
   exit 1
 fi
