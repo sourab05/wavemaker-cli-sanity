@@ -224,6 +224,14 @@ else
   cd "$AUTOMATION_REPO_PATH"
 fi
 
+# update-notifier v6+ is ESM-only on Node 23+; patch cloned security CLI on every run
+patch_security_cli_update_notifier() {
+  local index_js="${SECURITY_CLI_REPO_PATH:-$CLI_REPO_PATH}/index.js"
+  node "$AUTOMATION_REPO_PATH/scripts/patch-security-cli-update-notifier.js" "$index_js"
+}
+
+patch_security_cli_update_notifier
+
 if [ "$CLI_SETUP_ONLY" = "true" ]; then
   echo "--- CLI setup complete (CLI_SETUP_ONLY=true) ---"
   exit 0
