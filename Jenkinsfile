@@ -212,9 +212,10 @@ pipeline {
                         ? env.CLI_DEFAULT_BRANCH
                         : params.CLI_BRANCH
 
-                    env.SECURITY_EFFECTIVE_BRANCH = (params.CLI_BRANCH == 'main')
-                        ? env.SECURITY_CLI_BRANCH
-                        : params.CLI_BRANCH
+                    // Security fork (Karthik7bk/wm-reactnative-cli) is a separate repo with its own
+                    // branch naming — it must never inherit CLI_BRANCH, which targets the
+                    // wavemaker/wm-reactnative-cli repo instead.
+                    env.SECURITY_EFFECTIVE_BRANCH = env.SECURITY_CLI_BRANCH
                     env.SECURITY_CLI_REPO_PATH = "${WORKSPACE}/wm-reactnative-cli-security"
                 }
                 sh """
