@@ -552,8 +552,6 @@ pipeline {
             archiveArtifacts artifacts: 'allure-results/**', allowEmptyArchive: true
             archiveArtifacts artifacts: 'security-report/**,security-reports/**', allowEmptyArchive: true
             echo "Run complete. Platform: ${env.CLI_PLATFORM}, Branch: ${env.EFFECTIVE_BRANCH}, Target: ${params.RUN_TARGET}, PM: ${params.PKG_MANAGER}"
-        }
-        always {
             script {
                 sendBuildStatusEmail()
             }
