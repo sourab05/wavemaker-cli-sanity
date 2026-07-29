@@ -57,6 +57,48 @@ def isSecurityRun() {
     return isSecurityOnlyRun()
 }
 
+def sendBuildStatusEmail() {
+    def rows = """
+        <tr><td><b>Job Name</b></td><td>${env.JOB_NAME}</td></tr>
+        <tr><td><b>Build Number</b></td><td>${env.BUILD_NUMBER}</td></tr>
+        <tr><td><b>Status</b></td><td>${currentBuild.currentResult}</td></tr>
+        <tr><td><b>Run Target</b></td><td>${params.RUN_TARGET}</td></tr>
+        <tr><td><b>Project Mode</b></td><td>${params.PROJECT_MODE}</td></tr>
+        <tr><td><b>Package Manager</b></td><td>${params.PKG_MANAGER}</td></tr>
+        <tr><td><b>S3 Version</b></td><td>${params.S3_VERSION}</td></tr>
+    """
+
+    if (!isSecurityOnlyRun()) {
+        rows += """
+        <tr><td colspan="2"><b>CLI Tests</b></td></tr>
+        <tr><td><b>CLI Platform</b></td><td>${env.CLI_PLATFORM}</td></tr>
+        <tr><td><b>CLI Branch</b></td><td>${env.EFFECTIVE_BRANCH}</td></tr>
+        <tr><td><b>CLI Repo</b></td><td>${env.CLI_REPO_URL}</td></tr>
+        """
+    }
+
+    if (runsSecurityScan()) {
+        rows += """
+        <tr><td colspan="2"><b>Security Vulnerabilities</b></td></tr>
+        <tr><td><b>Security Branch</b></td><td>${env.SECURITY_EFFECTIVE_BRANCH}</td></tr>
+        <tr><td><b>Security Repo</b></td><td>${env.SECURITY_CLI_REPO_URL}</td></tr>
+        """
+    }
+
+    emailext(
+        subject: "[Jenkins] ${env.JOB_NAME} #${env.BUILD_NUMBER} - ${currentBuild.currentResult}",
+        mimeType: 'text/html',
+        body: """
+            <h2>Build Status: ${currentBuild.currentResult}</h2>
+            <table>${rows}</table>
+            <p><a href="${env.BUILD_URL}console">View Console Output</a></p>
+        """,
+        to: 'jeevan.inaparti@wavemaker.com',
+        from: 'jeevan.inaparti@wavemaker.com',
+        attachLog: true
+    )
+}
+
 pipeline {
     agent any
 
@@ -510,6 +552,11 @@ pipeline {
             archiveArtifacts artifacts: 'allure-results/**', allowEmptyArchive: true
             archiveArtifacts artifacts: 'security-report/**,security-reports/**', allowEmptyArchive: true
             echo "Run complete. Platform: ${env.CLI_PLATFORM}, Branch: ${env.EFFECTIVE_BRANCH}, Target: ${params.RUN_TARGET}, PM: ${params.PKG_MANAGER}"
+        }
+        always {
+            script {
+                sendBuildStatusEmail()
+            }
         }
         success {
             script {
