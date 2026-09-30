@@ -129,6 +129,12 @@ else
   fail "Jenkinsfile missing PROJECT_MODE parameter"
 fi
 
+if grep -q "TZ=Asia/Kolkata" Jenkinsfile && grep -q "selectedProjectMode" Jenkinsfile; then
+  pass "Jenkinsfile schedules 6 AM IST nightly forced to New Project"
+else
+  fail "Jenkinsfile missing nightly cron / selectedProjectMode override"
+fi
+
 if grep -q 'provision-studio-project' Jenkinsfile; then
   pass "Jenkinsfile provisions Studio project for New Project mode"
 else

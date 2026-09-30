@@ -35,11 +35,20 @@ def uploadSecurityReportsToS3(Map args = [:]) {
     }
 }
 
+// ponytail: no Parameterized Scheduler plugin, so the nightly timer can't pass build params —
+// plain cron uses parameter defaults. Timer builds are overridden here instead; manual builds
+// keep whatever PROJECT_MODE was picked in the UI.
+def selectedProjectMode() {
+    def timer = currentBuild.getBuildCauses('hudson.triggers.TimerTrigger$TimerTriggerCause')
+    return timer ? 'New Project' : params.PROJECT_MODE
+}
+
 // 'Both' runs the suite once per mode: existing Studio project first, then the provisioned one.
 // Scripts never see 'Both' — each pass is handed a concrete PROJECT_MODE.
 def projectModes() {
-    if (params.PROJECT_MODE != 'Both') {
-        return [params.PROJECT_MODE]
+    def mode = selectedProjectMode()
+    if (mode != 'Both') {
+        return [mode]
     }
     // AppChef Version only asserts the CLI version — project-independent, one pass is enough.
     if (params.RUN_TARGET == 'AppChef Version') {
@@ -136,7 +145,7 @@ def sendBuildStatusEmail() {
         <tr><td><b>Build Number</b></td><td>${env.BUILD_NUMBER}</td></tr>
         <tr><td><b>Status</b></td><td>${currentBuild.currentResult}</td></tr>
         <tr><td><b>Run Target</b></td><td>${params.RUN_TARGET}</td></tr>
-        <tr><td><b>Project Mode</b></td><td>${params.PROJECT_MODE}</td></tr>
+        <tr><td><b>Project Mode</b></td><td>${selectedProjectMode()}</td></tr>
         <tr><td><b>Package Manager</b></td><td>${params.PKG_MANAGER}</td></tr>
         <tr><td><b>S3 Version</b></td><td>${params.S3_VERSION}</td></tr>
     """
@@ -177,6 +186,11 @@ def sendBuildStatusEmail() {
 pipeline {
     agent any
 
+    triggers {
+        // 6:00 AM IST daily. The TZ= line is core Jenkins cron — no plugin needed.
+        cron('TZ=Asia/Kolkata\n0 6 * * *')
+    }
+
     parameters {
         string(
             name: 'CLI_BRANCH',
@@ -191,7 +205,7 @@ pipeline {
         choice(
             name: 'PROJECT_MODE',
             choices: ['Existing Project', 'New Project', 'Both'],
-            description: 'Existing uses Jenkins WM_CLI_* / SECURITY_WM_* project IDs. New creates one fresh NATIVE_MOBILE project (random name) used by both CLI tests and Security Vulnerabilities — WM_CLI_* login only. Both runs the selected target twice (existing project first, then the new one) — roughly double the runtime. App name / package / verification id / web preview XPath are resolved per mode inside the pipeline.'
+            description: 'Existing uses Jenkins WM_CLI_* / SECURITY_WM_* project IDs. New creates one fresh NATIVE_MOBILE project (random name) used by both CLI tests and Security Vulnerabilities — WM_CLI_* login only. Both runs the selected target twice (existing project first, then the new one) — roughly double the runtime. App name / package / verification id / web preview XPath are resolved per mode inside the pipeline. Ignored by the 6 AM IST nightly, which always runs New Project.'
         )
         string(
             name: 'CLI_REPO_URL',
@@ -252,7 +266,7 @@ pipeline {
         HEADLESS        = 'true'
         SYNC_TIMEOUT    = '900000'
         PACKAGE_MANAGER = "${params.PKG_MANAGER}"
-        PROJECT_MODE    = "${params.PROJECT_MODE}"
+        PROJECT_MODE    = "${selectedProjectMode()}"
 
         // Existing Project app config — no longer build params. New Project passes override these
         // from .ci-project-env.sh (written by scripts/provision-studio-project.ts).
