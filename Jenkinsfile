@@ -35,8 +35,21 @@ def uploadSecurityReportsToS3(Map args = [:]) {
     }
 }
 
+// 'Both' runs the suite once per mode: existing Studio project first, then the provisioned one.
+// Scripts never see 'Both' — each pass is handed a concrete PROJECT_MODE.
+def projectModes() {
+    if (params.PROJECT_MODE != 'Both') {
+        return [params.PROJECT_MODE]
+    }
+    // AppChef Version only asserts the CLI version — project-independent, one pass is enough.
+    if (params.RUN_TARGET == 'AppChef Version') {
+        return ['Existing Project']
+    }
+    return ['Existing Project', 'New Project']
+}
+
 def shouldProvisionNewProject() {
-    return params.PROJECT_MODE == 'New Project' && params.RUN_TARGET != 'AppChef Version'
+    return projectModes().contains('New Project') && params.RUN_TARGET != 'AppChef Version'
 }
 
 def isSecurityOnlyRun() {
@@ -57,6 +70,66 @@ def isSecurityRun() {
     return isSecurityOnlyRun()
 }
 
+def cliTestScript(String mode, String specFiles, boolean firstPass, String modeLabel) {
+    def allureSetup = firstPass ? """
+                        rm -rf allure-results allure-report
+
+                        CLI_VERSION=\$(${env.CLI_BINARY} --version 2>/dev/null || echo 'unknown')
+                        mkdir -p allure-results
+                        echo "CLI_Version=\$CLI_VERSION" > allure-results/environment.properties
+                        echo "CLI_Platform=${env.CLI_PLATFORM}" >> allure-results/environment.properties
+                        echo "CLI_Binary=${env.CLI_BINARY}" >> allure-results/environment.properties
+                        echo "Branch=${env.EFFECTIVE_BRANCH}" >> allure-results/environment.properties
+                        echo "Package_Manager=${params.PKG_MANAGER}" >> allure-results/environment.properties
+                        echo "Run_Target=${params.RUN_TARGET}" >> allure-results/environment.properties
+                        echo "Project_Mode=${modeLabel}" >> allure-results/environment.properties
+""" : """
+                        mkdir -p allure-results
+"""
+
+    return """
+                        export PROJECT_MODE="${mode}"
+                        echo "=== CLI tests — PROJECT_MODE: ${mode} ==="
+
+                        if [ -f "${env.WORKSPACE}/.ci-env.sh" ]; then
+                            echo "--- Loading Android CI env ---"
+                            set -a
+                            . "${env.WORKSPACE}/.ci-env.sh"
+                            set +a
+                            gradle --version
+                            echo "ANDROID_HOME=\${ANDROID_HOME}"
+                        fi
+
+                        # Loads .ci-project-env.sh (APP_NAME / APP_PACKAGE / APP_VERIFICATION_ID /
+                        # WEB_PREVIEW_XPATH of the provisioned project) only when mode is New Project.
+                        . scripts/source-ci-project-env.sh
+
+                        echo "--- RN ZIP env (masked) ---"
+                        echo "STUDIO_URL=\${STUDIO_URL}"
+                        echo "WM_PROJECT_ID prefix: \$(echo \"\$WM_PROJECT_ID\" | cut -c1-8)..."
+                        echo "STUDIO_PROJECT_ID prefix: \$(echo \"\$STUDIO_PROJECT_ID\" | cut -c1-8)..."
+                        echo "RN_BUILD_EMPTY_JOBS_POLL_LIMIT=\${RN_BUILD_EMPTY_JOBS_POLL_LIMIT:-12}"
+                        echo "APP_NAME=\${APP_NAME}"
+                        echo "APP_PACKAGE=\${APP_PACKAGE}"
+                        echo "APP_VERIFICATION_ID=\${APP_VERIFICATION_ID}"
+                        echo "WEB_PREVIEW_XPATH=\${WEB_PREVIEW_XPATH}"
+${allureSetup}
+                        set +e
+                        PACKAGE_MANAGER="${params.PKG_MANAGER}" \\
+                        RUN_LOCAL="false" \\
+                        HEADLESS="true" \\
+                        npx mocha \\
+                            --reporter allure-mocha \\
+                            --require ts-node/register \\
+                            --timeout 999999 \\
+                            ${specFiles}
+                        TEST_EXIT=\$?
+                        set -e
+
+                        exit \$TEST_EXIT
+    """
+}
+
 def sendBuildStatusEmail() {
     def rows = """
         <tr><td><b>Job Name</b></td><td>${env.JOB_NAME}</td></tr>
@@ -71,6 +144,7 @@ def sendBuildStatusEmail() {
     if (!isSecurityOnlyRun()) {
         rows += """
         <tr><td colspan="2"><b>CLI Tests</b></td></tr>
+        <tr><td><b>CLI Result</b></td><td>${env.CLI_RESULT ?: 'N/A'}</td></tr>
         <tr><td><b>CLI Platform</b></td><td>${env.CLI_PLATFORM}</td></tr>
         <tr><td><b>CLI Branch</b></td><td>${env.EFFECTIVE_BRANCH}</td></tr>
         <tr><td><b>CLI Repo</b></td><td>${env.CLI_REPO_URL}</td></tr>
@@ -80,21 +154,22 @@ def sendBuildStatusEmail() {
     if (runsSecurityScan()) {
         rows += """
         <tr><td colspan="2"><b>Security Vulnerabilities</b></td></tr>
+        <tr><td><b>Security Result</b></td><td>${env.SECURITY_RESULT ?: 'N/A'}</td></tr>
         <tr><td><b>Security Branch</b></td><td>${env.SECURITY_EFFECTIVE_BRANCH}</td></tr>
         <tr><td><b>Security Repo</b></td><td>${env.SECURITY_CLI_REPO_URL}</td></tr>
         """
     }
 
     emailext(
-        subject: "[Jenkins] ${env.JOB_NAME} #${env.BUILD_NUMBER} - ${currentBuild.currentResult}",
+        subject: "[WM-RN-Automation]  ${env.JOB_NAME} #${env.BUILD_NUMBER} - ${currentBuild.currentResult}",
         mimeType: 'text/html',
         body: """
             <h2>Build Status: ${currentBuild.currentResult}</h2>
             <table>${rows}</table>
             <p><a href="${env.BUILD_URL}console">View Console Output</a></p>
         """,
-        to: 'jeevan.inaparti@wavemaker.com',
-        from: 'jeevan.inaparti@wavemaker.com',
+        to: 'jeevan.inaparti@wavemaker.com,anitha.thummalapally@wavemaker.com',
+        from: 'qa-notifications@wavemaker.com',
         attachLog: true
     )
 }
@@ -115,8 +190,8 @@ pipeline {
         )
         choice(
             name: 'PROJECT_MODE',
-            choices: ['Existing Project', 'New Project'],
-            description: 'Existing uses Jenkins WM_CLI_* / SECURITY_WM_* project IDs. New creates one fresh NATIVE_MOBILE project (random name) used by both CLI tests and Security Vulnerabilities — WM_CLI_* login only.'
+            choices: ['Existing Project', 'New Project', 'Both'],
+            description: 'Existing uses Jenkins WM_CLI_* / SECURITY_WM_* project IDs. New creates one fresh NATIVE_MOBILE project (random name) used by both CLI tests and Security Vulnerabilities — WM_CLI_* login only. Both runs the selected target twice (existing project first, then the new one) — roughly double the runtime. App name / package / verification id / web preview XPath are resolved per mode inside the pipeline.'
         )
         string(
             name: 'CLI_REPO_URL',
@@ -127,26 +202,6 @@ pipeline {
             name: 'PKG_MANAGER',
             choices: ['npm', 'yarn', 'both'],
             description: 'Package manager mode for tests'
-        )
-        string(
-            name: 'APP_PACKAGE',
-            defaultValue: 'com.wavemaker.styleworkspaceautomation',
-            description: 'Android app package / bundle id (must match Studio project)'
-        )
-        string(
-            name: 'APP_NAME',
-            defaultValue: 'StyleWorkSpaceAutomation',
-            description: 'App name for wm_rn_config.json'
-        )
-        string(
-            name: 'APP_VERIFICATION_ID',
-            defaultValue: '~button_link_caption',
-            description: 'Expo Go / native build accessibility id to verify app loaded'
-        )
-        string(
-            name: 'WEB_PREVIEW_XPATH',
-            defaultValue: "//div[@aria-label='page_title_label_caption']",
-            description: 'Web preview XPath to verify page loaded'
         )
         string(
             name: 'S3_VERSION',
@@ -198,10 +253,13 @@ pipeline {
         SYNC_TIMEOUT    = '900000'
         PACKAGE_MANAGER = "${params.PKG_MANAGER}"
         PROJECT_MODE    = "${params.PROJECT_MODE}"
-        APP_PACKAGE     = "${params.APP_PACKAGE}"
-        APP_NAME        = "${params.APP_NAME}"
-        APP_VERIFICATION_ID = "${params.APP_VERIFICATION_ID}"
-        WEB_PREVIEW_XPATH   = "${params.WEB_PREVIEW_XPATH}"
+
+        // Existing Project app config — no longer build params. New Project passes override these
+        // from .ci-project-env.sh (written by scripts/provision-studio-project.ts).
+        APP_PACKAGE         = 'com.wavemaker.styleworkspaceautomation'
+        APP_NAME            = 'StyleWorkSpaceAutomation'
+        APP_VERIFICATION_ID = '~button_link_caption'
+        WEB_PREVIEW_XPATH   = "//div[@aria-label='page_title_label_caption']"
 
         SECURITY_CLI_REPO_URL = 'https://github.com/Karthik7bk/wm-reactnative-cli.git'
         SECURITY_CLI_BRANCH = 'SecurityVulnerabilities'
@@ -393,11 +451,17 @@ pipeline {
                 expression { !isSecurityOnlyRun() }
             }
             steps {
-                sh '''
-                    chmod +x scripts/source-ci-project-env.sh scripts/ci-smoke-test.sh
-                    . scripts/source-ci-project-env.sh
-                    ./scripts/ci-smoke-test.sh
-                '''
+                script {
+                    def modes = projectModes()
+                    for (int i = 0; i < modes.size(); i++) {
+                        sh """
+                            chmod +x scripts/source-ci-project-env.sh scripts/ci-smoke-test.sh
+                            export PROJECT_MODE="${modes[i]}"
+                            . scripts/source-ci-project-env.sh
+                            ./scripts/ci-smoke-test.sh
+                        """
+                    }
+                }
             }
         }
 
@@ -427,68 +491,31 @@ pipeline {
                             break
                     }
 
-                    def testSh = """
-                        if [ -f "${WORKSPACE}/.ci-env.sh" ]; then
-                            echo "--- Loading Android CI env ---"
-                            set -a
-                            . "${WORKSPACE}/.ci-env.sh"
-                            set +a
-                            gradle --version
-                            echo "ANDROID_HOME=\${ANDROID_HOME}"
-                        fi
-
-                        if [ -f "${WORKSPACE}/.ci-project-env.sh" ]; then
-                            echo "--- Loading provisioned Studio project env ---"
-                            set -a
-                            . "${WORKSPACE}/.ci-project-env.sh"
-                            set +a
-                        fi
-
-                        echo "--- RN ZIP env (masked) ---"
-                        echo "STUDIO_URL=\${STUDIO_URL}"
-                        echo "WM_PROJECT_ID prefix: \$(echo \"\$WM_PROJECT_ID\" | cut -c1-8)..."
-                        echo "STUDIO_PROJECT_ID prefix: \$(echo \"\$STUDIO_PROJECT_ID\" | cut -c1-8)..."
-                        echo "RN_BUILD_EMPTY_JOBS_POLL_LIMIT=\${RN_BUILD_EMPTY_JOBS_POLL_LIMIT:-12}"
-                        echo "APP_VERIFICATION_ID=\${APP_VERIFICATION_ID}"
-                        echo "WEB_PREVIEW_XPATH=\${WEB_PREVIEW_XPATH}"
-
-                        rm -rf allure-results allure-report
-
-                        CLI_VERSION=\$(${env.CLI_BINARY} --version 2>/dev/null || echo 'unknown')
-                        mkdir -p allure-results
-                        echo "CLI_Version=\$CLI_VERSION" > allure-results/environment.properties
-                        echo "CLI_Platform=${env.CLI_PLATFORM}" >> allure-results/environment.properties
-                        echo "CLI_Binary=${env.CLI_BINARY}" >> allure-results/environment.properties
-                        echo "Branch=${env.EFFECTIVE_BRANCH}" >> allure-results/environment.properties
-                        echo "Package_Manager=${params.PKG_MANAGER}" >> allure-results/environment.properties
-                        echo "Run_Target=${params.RUN_TARGET}" >> allure-results/environment.properties
-
-                        set +e
-                        PACKAGE_MANAGER="${params.PKG_MANAGER}" \
-                        RUN_LOCAL="false" \
-                        HEADLESS="true" \
-                        npx mocha \
-                            --reporter allure-mocha \
-                            --require ts-node/register \
-                            --timeout 999999 \
-                            ${specFiles}
-                        TEST_EXIT=\$?
-                        set -e
-
-                        exit \$TEST_EXIT
-                    """
+                    def modes = projectModes()
+                    def modeLabel = modes.join(' + ')
+                    def results = []
+                    def failed = false
 
                     withCredentials([usernamePassword(
                         credentialsId: 'BROWSERSTACK_CREDS',
                         usernameVariable: 'BROWSERSTACK_USERNAME',
                         passwordVariable: 'BROWSERSTACK_ACCESS_KEY'
                     )]) {
-                        if (params.RUN_TARGET == 'All Tests') {
-                            catchError(buildResult: null, stageResult: 'FAILURE') {
-                                sh testSh
-                            }
-                        } else {
-                            sh testSh
+                        for (int i = 0; i < modes.size(); i++) {
+                            def testSh = cliTestScript(modes[i], specFiles, i == 0, modeLabel)
+                            def cliExitCode = sh(script: testSh, returnStatus: true)
+                            if (cliExitCode != 0) { failed = true }
+                            results.add("${modes[i]}: ${cliExitCode == 0 ? 'PASSED' : 'FAILED'}")
+                        }
+                    }
+
+                    env.CLI_RESULT = results.join(', ')
+                    if (failed) {
+                        currentBuild.result = 'FAILURE'
+                        // Solo CLI-only runs abort here (security stages don't run for them anyway);
+                        // 'All Tests' continues so the Security Vulnerabilities stage still runs.
+                        if (params.RUN_TARGET != 'All Tests') {
+                            error("CLI tests failed — ${env.CLI_RESULT}")
                         }
                     }
                 }
@@ -500,15 +527,24 @@ pipeline {
                 expression { runsSecurityScan() }
             }
             steps {
-                sh """
-                    chmod +x scripts/run-security-vulnerabilities.sh scripts/source-ci-project-env.sh
-                    PROJECT_MODE="${params.PROJECT_MODE}" \\
-                    CLI_SETUP_ONLY=true \\
-                    SKIP_S3_UPLOAD=true \\
-                    CLI_REPO_PATH="${env.SECURITY_CLI_REPO_PATH}" \\
-                    ./scripts/run-security-vulnerabilities.sh ${env.SECURITY_EFFECTIVE_BRANCH}
-                """
                 script {
+                    // Clone/link only — any concrete mode works, 'Both' must never reach the script.
+                    def setupExitCode = sh(
+                        script: """
+                            chmod +x scripts/run-security-vulnerabilities.sh scripts/source-ci-project-env.sh
+                            PROJECT_MODE="${projectModes()[0]}" \\
+                            CLI_SETUP_ONLY=true \\
+                            SKIP_S3_UPLOAD=true \\
+                            CLI_REPO_PATH="${env.SECURITY_CLI_REPO_PATH}" \\
+                            ./scripts/run-security-vulnerabilities.sh ${env.SECURITY_EFFECTIVE_BRANCH}
+                        """,
+                        returnStatus: true
+                    )
+                    if (setupExitCode != 0) {
+                        env.SECURITY_RESULT = 'FAILED'
+                        currentBuild.result = 'FAILURE'
+                        error("Security CLI setup failed with exit code ${setupExitCode}")
+                    }
                     patchSecurityCliUpdateNotifier()
                 }
             }
@@ -520,18 +556,36 @@ pipeline {
             }
             steps {
                 script {
-                    patchSecurityCliUpdateNotifier()
-                    def preserveAllure = (params.RUN_TARGET == 'All Tests') ? 'true' : 'false'
-                    sh """
-                        chmod +x scripts/run-security-vulnerabilities.sh scripts/source-ci-project-env.sh
-                        PROJECT_MODE="${params.PROJECT_MODE}" \\
-                        SKIP_CLI_SETUP=true \\
-                        SKIP_S3_UPLOAD=true \\
-                        PRESERVE_ALLURE_RESULTS=${preserveAllure} \\
-                        CLI_REPO_PATH="${env.SECURITY_CLI_REPO_PATH}" \\
-                        SECURITY_CLI_REPO_PATH="${env.SECURITY_CLI_REPO_PATH}" \\
-                        ./scripts/run-security-vulnerabilities.sh ${env.SECURITY_EFFECTIVE_BRANCH}
-                    """
+                    def modes = projectModes()
+                    def results = []
+                    def failed = false
+
+                    for (int i = 0; i < modes.size(); i++) {
+                        patchSecurityCliUpdateNotifier()
+                        // Keep earlier results: the CLI suite's (All Tests) and the previous mode's.
+                        def preserveAllure = (params.RUN_TARGET == 'All Tests' || i > 0) ? 'true' : 'false'
+                        def securityExitCode = sh(
+                            script: """
+                                chmod +x scripts/run-security-vulnerabilities.sh scripts/source-ci-project-env.sh
+                                PROJECT_MODE="${modes[i]}" \\
+                                SKIP_CLI_SETUP=true \\
+                                SKIP_S3_UPLOAD=true \\
+                                PRESERVE_ALLURE_RESULTS=${preserveAllure} \\
+                                CLI_REPO_PATH="${env.SECURITY_CLI_REPO_PATH}" \\
+                                SECURITY_CLI_REPO_PATH="${env.SECURITY_CLI_REPO_PATH}" \\
+                                ./scripts/run-security-vulnerabilities.sh ${env.SECURITY_EFFECTIVE_BRANCH}
+                            """,
+                            returnStatus: true
+                        )
+                        if (securityExitCode != 0) { failed = true }
+                        results.add("${modes[i]}: ${securityExitCode == 0 ? 'PASSED' : 'FAILED'}")
+                    }
+
+                    env.SECURITY_RESULT = results.join(', ')
+                    if (failed) {
+                        currentBuild.result = 'FAILURE'
+                        error("Security vulnerability scan failed — ${env.SECURITY_RESULT}")
+                    }
                 }
             }
         }
