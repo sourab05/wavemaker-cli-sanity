@@ -228,6 +228,11 @@ pipeline {
         nodejs 'NodeJS 20.8.1'
     }
 
+    options {
+        // Archived allure/security reports accumulate per build with no cap otherwise.
+        buildDiscarder(logRotator(numToKeepStr: '15', artifactNumToKeepStr: '15'))
+    }
+
     environment {
         // Reuse existing Jenkins credentials (Global scope)
         WM_USERNAME        = credentials('WM_CLI_USERNAME')
@@ -655,6 +660,15 @@ pipeline {
                     uploadSecurityReportsToS3(nonFatal: true)
                 }
             }
+        }
+        // Runs last, after archiving/S3/email above — regardless of build result.
+        // These dirs are fully regenerated next run (fresh Studio project, fresh npm install),
+        // so there's nothing to preserve. Fixes workspace disk filling up / builds queuing.
+        cleanup {
+            sh '''
+                echo "--- Cleaning workspace build artifacts ---"
+                rm -rf Artifacts src/Artifacts src/rn-zips downloaded-projects .test-cache node_modules wm-reactnative-cli wm-reactnative-cli-security || true
+            '''
         }
     }
 }
