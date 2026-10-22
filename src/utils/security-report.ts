@@ -83,8 +83,10 @@ function escapeHtml(v: string): string {
     .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+const REPORT_NOT_GENERATED = 'Report not generated.';
+
 function readReportFile(p?: string): string {
-  if (!p || !fs.existsSync(p)) return 'Report not generated.';
+  if (!p || !fs.existsSync(p)) return REPORT_NOT_GENERATED;
   return fs.readFileSync(p, 'utf-8');
 }
 
@@ -369,6 +371,10 @@ export function buildSecurityReportText(input: SecurityReportInput): string {
 export function buildSecurityReportHtml(input: SecurityReportInput): string {
   const auditBody = readReportFile(input.auditReportPath);
   const snykBody  = readReportFile(input.snykReportPath);
+  // Neither scanner produced output (e.g. RN ZIP download failed in before()). Without this,
+  // zero parsed rows render as "0 issues / No vulnerabilities found" — a clean report for a
+  // scan that never ran, which the S3 upload on post.failure then publishes.
+  const scanRan = auditBody !== REPORT_NOT_GENERATED || snykBody !== REPORT_NOT_GENERATED;
 
   const auditPkgs = parseAuditPackages(auditBody);
   const snykPkgs  = parseSnykPackages(snykBody);
@@ -391,7 +397,13 @@ export function buildSecurityReportHtml(input: SecurityReportInput): string {
   const sectionTitle = escapeHtml(releaseVersion) + ' Release';
   const footerDate = formatFooterDate();
   const filterBar = buildSourceFilterBar(tableRows);
-  const tableBody = buildTableRowsHtml(tableRows);
+  const tableBody = scanRan
+    ? buildTableRowsHtml(tableRows)
+    : '<tr><td colspan="5" style="text-align:center;color:#b00020;padding:24px">Scan did not run — no npm audit or Snyk results were produced.</td></tr>';
+  const shown = (n: number): string => (scanRan ? String(n) : '&mdash;');
+  const incompleteBanner = scanRan
+    ? ''
+    : '<p style="background:#fdecea;color:#b00020;border:1px solid #f5c2c0;border-radius:6px;padding:12px 16px;margin-bottom:1.5rem;font-weight:600">SCAN INCOMPLETE — no results were produced. This is not a clean report; check the build log.</p>';
 
   const criticalCard = sevTotals.critical > 0
     ? '<div class="card crit-card"><div class="num">' + sevTotals.critical + '</div><div class="label">Critical</div></div>'
@@ -470,19 +482,20 @@ export function buildSecurityReportHtml(input: SecurityReportInput): string {
 <div class="container">
   <h1>Vulnerability Report</h1>
   <p class="subtitle">Security audit findings &mdash; npm audit &amp; Snyk &mdash; generated ${escapeHtml(footerDate)}</p>
+  ${incompleteBanner}
 
   <div class="summary-cards">
     <div class="card total-card">
-      <div class="num">${totalVulns}</div>
+      <div class="num">${shown(totalVulns)}</div>
       <div class="label">Total Issues</div>
     </div>
     ${criticalCard}
     <div class="card high-card">
-      <div class="num">${highCount}</div>
+      <div class="num">${shown(highCount)}</div>
       <div class="label">High Severity</div>
     </div>
     <div class="card med-card">
-      <div class="num">${medModerate}</div>
+      <div class="num">${shown(medModerate)}</div>
       <div class="label">Medium / Moderate</div>
     </div>
   </div>

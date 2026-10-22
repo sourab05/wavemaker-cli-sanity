@@ -4,10 +4,6 @@ def uploadReportsToS3(Map args = [:]) {
         echo '--- Skipping S3 upload (S3_REPORT_BUCKET not set) ---'
         return
     }
-    if (!params.S3_VERSION?.trim()) {
-        echo '--- S3_VERSION is empty — skipping S3 report upload. Set the build parameter to upload under react_native/releases/<version>/Cli/... ---'
-        return
-    }
     def cmd = 'npx ts-node scripts/generate-and-upload-report.ts'
     if (nonFatal) {
         sh "${cmd} || echo \"S3 upload skipped or failed (non-fatal)\""
@@ -20,10 +16,6 @@ def uploadSecurityReportsToS3(Map args = [:]) {
     def nonFatal = args.nonFatal == true
     if (!env.S3_REPORT_BUCKET?.trim()) {
         echo '--- Skipping security S3 upload (S3_REPORT_BUCKET not set) ---'
-        return
-    }
-    if (!params.S3_VERSION?.trim()) {
-        echo '--- S3_VERSION is empty — skipping security report upload ---'
         return
     }
     // Security upload uses hardcoded path in generate-and-upload-security-report.ts (Security Vulnerabilities/)
@@ -147,7 +139,7 @@ def sendBuildStatusEmail() {
         <tr><td><b>Run Target</b></td><td>${params.RUN_TARGET}</td></tr>
         <tr><td><b>Project Mode</b></td><td>${selectedProjectMode()}</td></tr>
         <tr><td><b>Package Manager</b></td><td>${params.PKG_MANAGER}</td></tr>
-        <tr><td><b>S3 Version</b></td><td>${params.S3_VERSION}</td></tr>
+        <tr><td><b>S3 Version</b></td><td>${env.S3_VERSION}</td></tr>
     """
 
     if (!isSecurityOnlyRun()) {
@@ -219,8 +211,8 @@ pipeline {
         )
         string(
             name: 'S3_VERSION',
-            defaultValue: 'WM-AI 1.0.0_BETA_RC4',
-            description: 'S3 release folder under react_native/releases/<S3_VERSION>/ (e.g. WM-AI 1.0.0_BETA_RC4, 12.0.0)'
+            defaultValue: '',
+            description: 'S3 release folder under react_native/releases/<S3_VERSION>/. Leave empty for the default Weekly-YYYY-MM-DD (today, IST). Override e.g. WM-AI 1.0.0_BETA_RC4, 12.0.0'
         )
     }
 
@@ -246,8 +238,9 @@ pipeline {
         AWS_SECRET_ACCESS_KEY = credentials('AWS_SECRET_ACCESS_KEY')
         S3_REPORT_BUCKET      = credentials('S3_BUCKET_NAME')
         AWS_REGION            = 'us-west-2'
-        S3_VERSION            = "${params.S3_VERSION}"
-        S3_REPORT_VERSION     = "${params.S3_VERSION}"
+        // ponytail: empty param => Weekly-<today IST>; same TZ as the 6 AM IST cron
+        S3_VERSION            = "${params.S3_VERSION?.trim() ?: sh(returnStdout: true, script: 'TZ=Asia/Kolkata date +Weekly-%Y-%m-%d').trim()}"
+        S3_REPORT_VERSION     = "${S3_VERSION}"
         S3_REPORT_PROJECT     = 'Cli'
         S3_REPORT_FILENAME    = 'stage-ai-cli.html'
 

@@ -261,7 +261,11 @@ describe('CLI Security Vulnerabilities (npm audit + Snyk)', function () {
       JSON.stringify(meta, null, 2),
       'utf-8'
     );
-    log.success(`Security HTML report: ${htmlReportPath}`);
+    if (artifacts?.zipPath) {
+      log.success(`Security HTML report: ${htmlReportPath}`);
+    } else {
+      log.error(`Security scan INCOMPLETE — no RN ZIP was obtained, nothing was scanned. Report marked incomplete: ${htmlReportPath}`);
+    }
     log.separator('Security Vulnerabilities Scan Complete');
   });
 });
