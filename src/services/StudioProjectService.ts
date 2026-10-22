@@ -147,6 +147,43 @@ export class StudioProjectService {
     return service.createNativeMobileProject(projectName);
   }
 
+  /** Logs in with the same env creds as createNewProjectFromEnv and deletes one project. */
+  static async deleteProjectFromEnv(studioProjectId: string): Promise<void> {
+    const baseUrl = (
+      process.env.STUDIO_BASE_URL ||
+      process.env.STUDIO_URL ||
+      'https://stage-studio.wavemakeronline.com'
+    ).replace(/\/$/, '');
+
+    const username =
+      process.env.STUDIO_USERNAME || process.env.WM_USERNAME || process.env.WMO_USER;
+    const password =
+      process.env.STUDIO_PASSWORD || process.env.WM_PASSWORD || process.env.WMO_PASS;
+
+    if (!username || !password) {
+      throw new Error('WM_USERNAME and WM_PASSWORD are required to delete a Studio project');
+    }
+
+    const authService = new AuthService(baseUrl);
+    const authCookie = await authService.login(username, password);
+    const service = new StudioProjectService(baseUrl, authCookie);
+    return service.deleteProject(studioProjectId);
+  }
+
+  /** DELETE /ednservices/rest/projects/{studioProjectId} — studioProjectId is the "proj-xxx" id. */
+  async deleteProject(studioProjectId: string): Promise<void> {
+    log.info(`Deleting Studio project ${studioProjectId}...`);
+    const res = await this.http.delete(`/ednservices/rest/projects/${studioProjectId}`, {
+      params: { deprecateArtifacts: false },
+    });
+    if (res.status >= 400) {
+      const body =
+        typeof res.data === 'string' ? res.data : JSON.stringify(res.data).slice(0, 500);
+      throw new Error(`deleteProject failed for ${studioProjectId} (HTTP ${res.status}): ${body}`);
+    }
+    log.success(`Deleted Studio project ${studioProjectId}`);
+  }
+
   async runOnboardingPreflight(): Promise<number> {
     log.info('Running Studio onboarding preflight...');
 

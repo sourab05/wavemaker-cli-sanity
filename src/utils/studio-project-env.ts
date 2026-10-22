@@ -71,6 +71,24 @@ export function applyProvisionedProjectToSecurityEnv(): void {
   }
 }
 
+/** Reads back WM_PROJECT_ID/STUDIO_PROJECT_ID written by a previous writeCiProjectEnvFile call. */
+export function readCiProjectEnvFile(
+  targetPath: string
+): { wmProjectId?: string; studioProjectId?: string } | undefined {
+  if (!fs.existsSync(targetPath)) return undefined;
+
+  const content = fs.readFileSync(targetPath, 'utf-8');
+  const get = (key: string): string | undefined => {
+    const match = content.match(new RegExp(`export ${key}="([^"]*)"`));
+    return match?.[1]?.trim() || undefined;
+  };
+
+  return {
+    wmProjectId: get('WM_PROJECT_ID'),
+    studioProjectId: get('STUDIO_PROJECT_ID'),
+  };
+}
+
 export function writeCiProjectEnvFile(
   targetPath: string,
   project: ProvisionedProjectEnv

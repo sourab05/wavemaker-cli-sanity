@@ -7,7 +7,11 @@
 import * as path from 'path';
 import dotenv from 'dotenv';
 import { StudioProjectService } from '../src/services/StudioProjectService';
-import { isNewProjectMode, writeCiProjectEnvFile } from '../src/utils/studio-project-env';
+import {
+  isNewProjectMode,
+  readCiProjectEnvFile,
+  writeCiProjectEnvFile,
+} from '../src/utils/studio-project-env';
 
 dotenv.config();
 
@@ -20,6 +24,20 @@ async function main(): Promise<void> {
   const outputPath =
     process.env.CI_PROJECT_ENV_FILE ||
     path.resolve(process.cwd(), '.ci-project-env.sh');
+
+  // The workspace isn't wiped until after the build (Jenkinsfile post.cleanup), so this
+  // file still holds the project the previous New Project run created. Delete it before
+  // provisioning a new one — best-effort: a failed/missing delete must not block today's run.
+  const previous = readCiProjectEnvFile(outputPath);
+  if (previous?.studioProjectId) {
+    console.log(`--- Deleting previously provisioned project ${previous.studioProjectId} ---`);
+    try {
+      await StudioProjectService.deleteProjectFromEnv(previous.studioProjectId);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(`--- Could not delete previous project (continuing): ${message} ---`);
+    }
+  }
 
   const created = await StudioProjectService.createNewProjectFromEnv();
 
