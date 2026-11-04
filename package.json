@@ -8,6 +8,7 @@
     "clean": "rimraf dist",
     "prebuild": "npm run clean",
     "test": "npx mocha --reporter allure-mocha --require ts-node/register --timeout 999999 'test/specs/**/*.spec.ts'",
+    "test:unit": "mocha --require ts-node/register --timeout 15000 'test/unit/**/*.spec.ts'",
     "test:appchef": "npx mocha --reporter allure-mocha --require ts-node/register --timeout 30000 test/specs/appchef-version.spec.ts",
     "test:preview": "npx mocha --reporter allure-mocha --require ts-node/register --timeout 999999 test/specs/preview-cli.spec.ts",
     "test:build": "npx mocha --reporter allure-mocha --require ts-node/register --timeout 999999 test/specs/app-build.spec.ts",

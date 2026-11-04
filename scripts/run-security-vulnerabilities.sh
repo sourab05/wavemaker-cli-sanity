@@ -60,6 +60,8 @@ apply_provisioned_project_for_security() {
 }
 
 apply_provisioned_project_for_security
+# shellcheck disable=SC1091
+. "$ROOT/scripts/apply-existing-project-overrides.sh"
 
 SECURITY_CLI_REPO_URL="${SECURITY_CLI_REPO_URL:-https://github.com/Karthik7bk/wm-reactnative-cli.git}"
 SECURITY_CLI_BRANCH="${1:-${SECURITY_CLI_BRANCH:-SecurityVulnerabilities}}"
@@ -143,6 +145,9 @@ echo "  Studio URL:  ${SECURITY_STUDIO_URL}"
 echo "  Jobs API id: ${SECURITY_STUDIO_PROJECT_ID:-not set}"
 echo "============================================================"
 
+export WM_NPM_REGISTRY="${WM_NPM_REGISTRY:-https://repository.wavemaker.com/repository/wavemaker-npm-repo/}"
+export npm_config_registry="$WM_NPM_REGISTRY"
+export NPM_CONFIG_REGISTRY="$WM_NPM_REGISTRY"
 chmod +x "$ROOT/scripts/configure-npm-registry.sh"
 "$ROOT/scripts/configure-npm-registry.sh" "$AUTOMATION_REPO_PATH"
 
@@ -266,8 +271,7 @@ ensure_snyk_cli() {
 if [ -n "${SNYK_TOKEN:-}" ]; then
   export SNYK_API_TOKEN="$SNYK_TOKEN"
   ensure_snyk_cli
-  # Pre-authenticate so the security CLI auth check succeeds
-  snyk config set api="$SNYK_TOKEN" >/dev/null 2>&1 || true
+  # Snyk reads SNYK_TOKEN directly; never persist it or pass it in argv.
 else
   echo "--- SNYK_TOKEN not set — Snyk scan will be skipped in spec ---"
 fi
@@ -321,6 +325,14 @@ echo "--- Generating Allure report (optional) ---"
 if [ -d allure-results ] && [ "$(ls -A allure-results 2>/dev/null)" ]; then
   npx allure generate allure-results --clean --single-file -o allure-report \
     || echo "allure generate skipped"
+fi
+
+# Keep every mode's custom report: the next pass (PROJECT_MODE=Both) wipes security-reports/.
+if [ -d security-reports ]; then
+  MODE_SLUG="$(echo "${PROJECT_MODE:-Existing Project}" | tr 'A-Z ' 'a-z-')"
+  rm -rf "security-reports-by-mode/$MODE_SLUG"
+  mkdir -p security-reports-by-mode
+  cp -R security-reports "security-reports-by-mode/$MODE_SLUG"
 fi
 
 upload_security_report() {

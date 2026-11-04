@@ -32,6 +32,10 @@ export class WebPreviewPage extends BasePage {
       return true;
     } catch (error: any) {
       log.error(`Web preview verification failed: ${error.message}`);
+      try {
+        const currentUrl = new URL(await this.driver.getUrl());
+        log.error(`Failed selector: ${this.navbarTitleXPath}; page: ${currentUrl.origin}${currentUrl.pathname}; title: ${await this.driver.getTitle()}`);
+      } catch { /* Diagnostics must not hide the original failure. */ }
       await this.takeScreenshot('web-preview-failure');
       throw error;
     }

@@ -16,6 +16,8 @@ import { killProcess, killPort } from '../../src/utils/process-utils';
 import { createLogger } from '../../src/utils/Logger';
 import { getPackageManagers, PackageManagerCommands } from '../../src/utils/package-manager';
 import { getCliVariant } from '../../src/utils/cli-variant';
+import { ensureNpmRegistry } from '../../src/utils/npm-registry';
+import { startWebPreview } from '../../src/utils/web-preview';
 
 dotenv.config();
 
@@ -49,6 +51,7 @@ packageManagers.forEach((pm) => {
         log.separator(`WM CLI Sync & Web Preview Test Suite (${cmd.label})`);
 
         config = getPreviewCLIConfig();
+        ensureNpmRegistry(process.cwd());
         const studioUrl = process.env.STUDIO_URL || 'https://stage-studio.wavemakeronline.com';
         const cliVariant = getCliVariant();
         authService = new AuthService(studioUrl);
@@ -212,24 +215,17 @@ packageManagers.forEach((pm) => {
       this.timeout(10 * 60 * 1000);
       await ensureSetup();
       let browser: Browser | undefined;
+      let preview: Awaited<ReturnType<typeof startWebPreview>> | undefined;
 
       try {
         const webPreviewCmd = cmd.cli(`run web-preview "${previewUrl}"`);
         log.step(1, 2, `Running CLI web-preview command: ${webPreviewCmd}`);
-        await runCommand(webPreviewCmd, {
-          timeout: config.syncTimeout,
-          successMessage: '✔ Project transpiled successfully',
-          onData: (text, child) => {
-            if (/token\s*:/i.test(text.trim())) {
-              child.stdin!.write(`${cookieValue}\n`);
-            }
-          },
-        });
+        preview = await startWebPreview(webPreviewCmd, cookieValue, config.syncTimeout);
 
         log.step(2, 2, 'Verifying web preview in browser...');
         browser = await DriverFactory.createBrowserSession();
         const webPreviewPage = new WebPreviewPage(browser);
-        await webPreviewPage.openAndVerify(previewUrl);
+        await webPreviewPage.openAndVerify(preview.url);
 
         log.success('Expo web preview verified');
       } catch (error: any) {
@@ -237,31 +233,31 @@ packageManagers.forEach((pm) => {
         if (browser) await DriverFactory.takeScreenshot(browser, `expo-web-preview-failure-${pm}`);
         throw error;
       } finally {
-        await DriverFactory.closeSession(browser);
+        try { await DriverFactory.closeSession(browser); }
+        finally { preview?.stop(); }
       }
     });
 
     it('should run Esbuild web-preview and generate the Esbuild Web App', async function () {
       this.timeout(10 * 60 * 1000);
       await ensureSetup();
+      let preview: Awaited<ReturnType<typeof startWebPreview>> | undefined;
+      let browser: Browser | undefined;
 
       try {
         const esbuildCmd = cmd.cli(`run web-preview "${previewUrl}" --esbuild`);
         log.info(`Running CLI web-preview with --esbuild flag: ${esbuildCmd}`);
-        await runCommand(esbuildCmd, {
-          timeout: config.syncTimeout,
-          successMessage: '✔ Project transpiled successfully',
-          onData: (text, child) => {
-            if (/token\s*:/i.test(text.trim())) {
-              child.stdin!.write(`${cookieValue}\n`);
-            }
-          },
-        });
+        preview = await startWebPreview(esbuildCmd, cookieValue, config.syncTimeout);
+        browser = await DriverFactory.createBrowserSession();
+        await new WebPreviewPage(browser).openAndVerify(preview.url);
 
         log.success('Esbuild web preview generated');
       } catch (error: any) {
         log.error(`Esbuild web-preview failed: ${error.message}`);
         throw error;
+      } finally {
+        try { await DriverFactory.closeSession(browser); }
+        finally { preview?.stop(); }
       }
     });
 

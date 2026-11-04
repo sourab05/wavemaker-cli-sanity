@@ -5,22 +5,22 @@
 
 set -e
 
-PUBLIC_REGISTRY="${NPM_REGISTRY:-https://registry.npmjs.org/}"
 WM_REGISTRY="${WM_NPM_REGISTRY:-https://repository.wavemaker.com/repository/wavemaker-npm-repo/}"
 PROJECT_DIR="${1:-}"
 
 echo "--- Configuring npm registries ---"
-echo "  public:    ${PUBLIC_REGISTRY}"
-echo "  @wavemaker scopes: ${WM_REGISTRY}"
+echo "  default and WaveMaker scopes: ${WM_REGISTRY}"
 
-npm config set registry "${PUBLIC_REGISTRY}"
+npm config set registry "${WM_REGISTRY}"
+npm config set @wm:registry "${WM_REGISTRY}"
 npm config set @wavemaker:registry "${WM_REGISTRY}"
 npm config set @wavemaker-ai:registry "${WM_REGISTRY}"
 
 if [ -n "${PROJECT_DIR}" ]; then
   mkdir -p "${PROJECT_DIR}"
   cat > "${PROJECT_DIR}/.npmrc" << EOF
-registry=${PUBLIC_REGISTRY}
+registry=${WM_REGISTRY}
+@wm:registry=${WM_REGISTRY}
 @wavemaker:registry=${WM_REGISTRY}
 @wavemaker-ai:registry=${WM_REGISTRY}
 EOF
@@ -28,5 +28,6 @@ EOF
 fi
 
 echo "registry=$(npm config get registry)"
+echo "@wm:registry=$(npm config get @wm:registry)"
 echo "@wavemaker:registry=$(npm config get @wavemaker:registry)"
 echo "@wavemaker-ai:registry=$(npm config get @wavemaker-ai:registry)"

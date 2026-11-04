@@ -15,6 +15,34 @@ import {
 import { writeSecurityReport } from '../src/utils/security-report';
 import { uploadReportToS3 } from '../src/s3/upload-report';
 
+async function buildAndUpload(
+  metaPath: string, outputDir: string, s3Filename: string
+): Promise<void> {
+  const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
+  meta.releaseVersion = resolveSecurityReleaseVersion(meta.releaseVersion);
+
+  const reportsDir = path.dirname(metaPath);
+  const auditCopy = path.join(reportsDir, 'audit-report.txt');
+  const snykCopy = path.join(reportsDir, 'snyk-report.txt');
+  if (fs.existsSync(auditCopy)) meta.auditReportPath = auditCopy;
+  if (fs.existsSync(snykCopy)) meta.snykReportPath = snykCopy;
+
+  const htmlPath = writeSecurityReport(outputDir, meta);
+  console.log(`--- Security HTML report: ${htmlPath} ---`);
+
+  const s3Prefix = buildSecurityS3Prefix(meta.releaseVersion);
+  console.log(`--- Uploading to s3://<bucket>/${s3Prefix}${s3Filename} ---`);
+
+  const url = await uploadReportToS3({
+    reportDir: outputDir,
+    reportFile: 'index.html',
+    prefix: s3Prefix,
+    s3Filename,
+    contentType: 'text/html; charset=utf-8',
+  });
+  console.log(`--- Security report uploaded: ${url} ---`);
+}
+
 async function main(): Promise<void> {
   require('dotenv').config();
   applySecurityProjectEnv();
@@ -29,29 +57,17 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const meta = JSON.parse(fs.readFileSync(reportInputPath, 'utf-8'));
-  meta.releaseVersion = resolveSecurityReleaseVersion(meta.releaseVersion);
+  await buildAndUpload(reportInputPath, outputDir, SECURITY_S3_CONFIG.filename);
 
-  const reportsDir = path.dirname(reportInputPath);
-  const auditCopy = path.join(reportsDir, 'audit-report.txt');
-  const snykCopy = path.join(reportsDir, 'snyk-report.txt');
-  if (fs.existsSync(auditCopy)) meta.auditReportPath = auditCopy;
-  if (fs.existsSync(snykCopy)) meta.snykReportPath = snykCopy;
-
-  const htmlPath = writeSecurityReport(outputDir, meta);
-  console.log(`--- Security HTML report: ${htmlPath} ---`);
-
-  const s3Prefix = buildSecurityS3Prefix(meta.releaseVersion);
-  console.log(`--- Uploading to s3://<bucket>/${s3Prefix}${SECURITY_S3_CONFIG.filename} ---`);
-
-  const url = await uploadReportToS3({
-    reportDir: outputDir,
-    reportFile: 'index.html',
-    prefix: s3Prefix,
-    s3Filename: SECURITY_S3_CONFIG.filename,
-    contentType: 'text/html; charset=utf-8',
-  });
-  console.log(`--- Security report uploaded: ${url} ---`);
+  // One report per project mode (security-reports-by-mode/<existing-project|new-project>).
+  const modeRoot = path.resolve(process.cwd(), 'security-reports-by-mode');
+  if (!fs.existsSync(modeRoot)) return;
+  for (const slug of fs.readdirSync(modeRoot).sort()) {
+    const dir = path.join(modeRoot, slug);
+    const meta = path.join(dir, 'report-meta.json');
+    if (!fs.existsSync(meta)) continue;
+    await buildAndUpload(meta, dir, `security-vulnerabilities-${slug}.html`);
+  }
 }
 
 main().catch((err) => {

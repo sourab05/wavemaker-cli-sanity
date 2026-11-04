@@ -2,8 +2,7 @@
 /**
  * Patch cloned security CLI runtime issues:
  * 1) update-notifier v6+ (ESM) under Node 23+
- * 2) Snyk scan npm install cwd resolution (avoid ENOENT on temp parent path)
- * 3) Snyk report capture from stdout+stderr (avoid empty report files on CI)
+ * 2) Checked dependency installation and structured audit/Snyk results
  *
  * Usage: node scripts/patch-security-cli-update-notifier.js <path-to-index.js>
  */
@@ -19,8 +18,8 @@ if (!indexPath) {
 }
 
 if (!fs.existsSync(indexPath)) {
-  console.log('--- Security CLI index.js not found; skipping security CLI runtime patches ---');
-  process.exit(0);
+  console.error('Security CLI index.js not found; cannot apply required patches');
+  process.exit(1);
 }
 
 function patchUpdateNotifier(indexJsPath) {
@@ -54,8 +53,7 @@ function patchUpdateNotifier(indexJsPath) {
     /const updateNotifier = require\('update-notifier'\)(?:\.default)?;\nconst pkg = require\('\.\/package\.json'\);\nconst \{ canDoAndroidBuild, canDoIosBuild, showConfirmation \} = require\('\.\/src\/requirements'\);\nupdateNotifier\(\{[\s\S]*?\}\)\.notify\(\{[\s\S]*?\}\);/;
 
   if (!pattern.test(source)) {
-    console.warn('--- Could not find update-notifier block to patch in index.js ---');
-    return false;
+    throw new Error('Could not find required update-notifier block to patch in index.js');
   }
 
   source = source.replace(pattern, replacement);
@@ -64,90 +62,28 @@ function patchUpdateNotifier(indexJsPath) {
   return true;
 }
 
-function patchSnykInstallAndReport(snykJsPath) {
-  if (!fs.existsSync(snykJsPath)) {
-    console.log('--- Security CLI src/snyk.js not found; skipping Snyk hardening patch ---');
-    return false;
+patchUpdateNotifier(indexPath);
+const srcDir = path.join(path.dirname(indexPath), 'src');
+for (const tool of ['audit', 'snyk']) {
+  const entry = path.join(srcDir, `${tool}.js`);
+  if (!fs.existsSync(entry)) throw new Error(`Missing required security entrypoint: ${entry}`);
+  const source = fs.readFileSync(entry, 'utf8');
+  if (!source.includes('extractRNZip') ||
+      (!source.includes(`const ${tool} = async`) && !source.includes('wm-security-runtime'))) {
+    throw new Error(`Unsupported security entrypoint: ${entry}`);
   }
-
-  let source = fs.readFileSync(snykJsPath, 'utf8');
-  let changed = false;
-
-  if (!source.includes('Skipping npm install: package.json not found')) {
-    const installBlockPattern =
-      /  \/\/ Install Node modules[\s\S]*?console\.log\("Proceeding with Snyk test anyway\.\.\."\);\n  \}/m;
-    const installBlockReplacement = [
-      '  // Install Node modules',
-      "  const installCwd = fs.existsSync(path.join(absolutePath, 'package.json'))",
-      '    ? absolutePath',
-      "    : (fs.existsSync(path.join(parentDir, 'package.json')) ? parentDir : null);",
-      '  console.log("Installing node modules...");',
-      '  try {',
-      '    if (!installCwd) {',
-      '      console.warn(`Skipping npm install: package.json not found in ${absolutePath} or ${parentDir}`);',
-      '    } else {',
-      "      execSync('npm install', { cwd: installCwd, stdio: 'inherit' });",
-      "      execSync('npm update', { cwd: installCwd, stdio: 'inherit' });",
-      '      console.log(`Node modules installed in ${installCwd}.`);',
-      '    }',
-      '  } catch (npmError) {',
-      '    console.warn(`Failed to install npm packages: ${npmError.message}`);',
-      '    console.log("Proceeding with Snyk test anyway...");',
-      '  }',
-    ].join('\n');
-
-    if (installBlockPattern.test(source)) {
-      source = source.replace(installBlockPattern, installBlockReplacement);
-      changed = true;
-      console.log('--- Patched Snyk npm install cwd hardening in src/snyk.js ---');
-    } else {
-      console.warn('--- Could not find Snyk npm install block to patch in src/snyk.js ---');
-    }
-  } else {
-    console.log('--- Security CLI src/snyk.js already patched for npm install cwd hardening ---');
-  }
-
-  if (!source.includes('Snyk test failed and no report output was captured.')) {
-    const reportBlockPattern =
-      /  } catch \(error\) {\n\s*console\.error\("Vulnerabilities detected during Snyk test\."\);[\s\S]*?console\.log\(`Snyk report saved to \$\{reportPath\}`\);\n  }/m;
-    const reportBlockReplacement = [
-      '  } catch (error) {',
-      '    console.error("Vulnerabilities detected during Snyk test.");',
-      "    const reportPath = path.join(absolutePath, 'snyk-report.txt');",
-      '    const reportContent = [',
-      "      error?.stdout?.toString?.() || '',",
-      "      error?.stderr?.toString?.() || '',",
-      "    ].filter(Boolean).join('\\n').trim();",
-      '    fs.writeFileSync(',
-      '      reportPath,',
-      "      reportContent || String(error?.message || 'Snyk test failed and no report output was captured.')",
-      '    );',
-      '    console.log(`Snyk report saved to ${reportPath}`);',
-      '  }',
-    ].join('\n');
-
-    if (reportBlockPattern.test(source)) {
-      source = source.replace(reportBlockPattern, reportBlockReplacement);
-      changed = true;
-      console.log('--- Patched Snyk report capture hardening in src/snyk.js ---');
-    } else {
-      console.warn('--- Could not find Snyk catch/report block to patch in src/snyk.js ---');
-    }
-  } else {
-    console.log('--- Security CLI src/snyk.js already patched for report capture hardening ---');
-  }
-
-  if (changed) {
-    fs.writeFileSync(snykJsPath, source);
-  }
-
-  return changed;
 }
-
-const notifierPatched = patchUpdateNotifier(indexPath);
-const snykPath = path.join(path.dirname(indexPath), 'src', 'snyk.js');
-const snykPatched = patchSnykInstallAndReport(snykPath);
-
-if (!notifierPatched && !snykPatched) {
-  console.log('--- Security CLI patches already present or no changes needed ---');
+for (const filename of ['security-scan-runtime.js', 'security-results.js']) {
+  fs.copyFileSync(path.join(__dirname, filename), path.join(srcDir, filename));
 }
+for (const tool of ['audit', 'snyk']) {
+  fs.writeFileSync(path.join(srcDir, `${tool}.js`), [
+    '// wm-security-runtime: checked install and structured scan results.',
+    "const { extractRNZip } = require('./command.js');",
+    "const { runScan } = require('./security-scan-runtime.js');",
+    `const ${tool} = async (args) => runScan('${tool}', args, extractRNZip);`,
+    `module.exports = { ${tool}, extractRNZip };`,
+    '',
+  ].join('\n'));
+}
+console.log('--- Installed checked npm audit and Snyk runtime ---');

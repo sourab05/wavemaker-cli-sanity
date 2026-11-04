@@ -2,6 +2,13 @@ import { spawn, ChildProcess } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import { killProcessTree } from './process-utils';
+import { DEFAULT_WM_NPM_REGISTRY } from './npm-registry';
+
+export class CommandError extends Error {
+  constructor(message: string, public exitCode: number | null, public stdout: string, public stderr: string) {
+    super(message);
+  }
+}
 
 export interface RunCommandOptions {
   timeout: number;
@@ -9,6 +16,7 @@ export interface RunCommandOptions {
   successMessage?: string;
   resolveOnRegex?: RegExp;
   resolveOnData?: (data: string) => boolean;
+  failureRegex?: RegExp;
   onData?: (text: string, child: ChildProcess) => void;
   keepAlive?: boolean;
   expectedFile?: string;
@@ -27,6 +35,7 @@ export function runCommand(
     successMessage,
     resolveOnRegex,
     resolveOnData,
+    failureRegex,
     onData,
     keepAlive = false,
     expectedFile,
@@ -35,13 +44,15 @@ export function runCommand(
 
   let child: ChildProcess;
   const promise = new Promise<RunCommandResult>((resolve, reject) => {
-    const env = { ...process.env, CI: 'false', NO_COLOR: '1' };
+    const registry = process.env.WM_NPM_REGISTRY || DEFAULT_WM_NPM_REGISTRY;
+    const env = { ...process.env, CI: 'false', NO_COLOR: '1',
+      npm_config_registry: registry, NPM_CONFIG_REGISTRY: registry };
     child = spawn(command, {
       shell: true,
       env,
       stdio: ['pipe', 'pipe', 'pipe'],
       cwd,
-      detached: !keepAlive,
+      detached: true,
     });
 
     let stdout = '';
@@ -62,21 +73,25 @@ export function runCommand(
     const cleanup = () => {
       clearTimeout(timeoutId);
       if (intervalId) clearInterval(intervalId);
-      child.stdout?.removeAllListeners();
-      child.stderr?.removeAllListeners();
-      child.removeAllListeners();
+      // Keep draining persistent server output after readiness.
+      if (!keepAlive || !settled) {
+        child.stdout?.removeAllListeners();
+        child.stderr?.removeAllListeners();
+      }
     };
 
     const settle = (err: Error | null, result?: RunCommandResult) => {
       if (settled) return;
       settled = true;
       cleanup();
+      if (err && keepAlive && child.pid) killProcessTree(child.pid);
       err ? reject(err) : resolve(result!);
     };
 
     const dataHandler = (textChunk: Buffer, isStderr = false) => {
       const text = textChunk.toString();
       process.stdout.write(text);
+      if (settled) return;
       
       if (isStderr) {
         stderr += text;
@@ -109,6 +124,10 @@ export function runCommand(
       }
 
       if (onData) onData(text, child);
+      if (failureRegex?.test(stdout + stderr)) {
+        settle(new CommandError('Command reported an operational failure', null, stdout, stderr));
+        return;
+      }
 
       if (resolveOnData && resolveOnData(text)) {
         settle(null, { stdout, stderr });
@@ -150,13 +169,16 @@ export function runCommand(
     );
 
     child.on('close', (code) => {
-      if (settled || keepAlive) return;
+      if (settled) return;
       if (code !== 0) {
         settle(
-          new Error(
-            `Command failed with exit code ${code}.\n\nSTDOUT:\n${stdout}\n\nSTDERR:\n${stderr}`
+          new CommandError(
+            `Command failed with exit code ${code}.\n\nSTDOUT:\n${stdout}\n\nSTDERR:\n${stderr}`,
+            code, stdout, stderr
           )
         );
+      } else if (keepAlive) {
+        settle(new CommandError('Server exited before readiness', code, stdout, stderr));
       } else {
         // Process exited 0: resolve successfully (avoid hanging if successMessage never appeared)
         settle(null, { stdout, stderr });

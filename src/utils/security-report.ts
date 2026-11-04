@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { resolveSecurityReleaseVersion } from '../config/security-project';
+import { readSecurityResult, ScanStatus } from './security-result';
 
 // ─── Public types ─────────────────────────────────────────────────────────────
 
@@ -14,9 +15,14 @@ export interface SecurityReportInput {
   rnZipSource?: string;
   /** Release label for report section, e.g. 12.0.0 → "12.0.0 Release" */
   releaseVersion?: string;
+  environment?: string;
+  projectMode?: string;
+  auditStatus?: ScanStatus;
+  snykStatus?: ScanStatus;
 }
 
 export interface SeverityCounts {
+  status?: ScanStatus;
   critical: number;
   high: number;
   moderate: number;
@@ -90,6 +96,11 @@ function readReportFile(p?: string): string {
   return fs.readFileSync(p, 'utf-8');
 }
 
+function reportStatus(parsed: SeverityCounts, declared?: ScanStatus): ScanStatus {
+  if (declared === 'failed' || declared === 'skipped') return declared;
+  return parsed.status || 'failed';
+}
+
 const SEV: Record<string, number> = { critical: 4, high: 3, moderate: 2, medium: 2, low: 1 };
 function sevOrd(s: string): number { return SEV[s.toLowerCase()] ?? 0; }
 function normSev(s: string): string { return s.toLowerCase() === 'medium' ? 'moderate' : s.toLowerCase(); }
@@ -113,6 +124,20 @@ function normTitle(title: string): string {
 // ─── Parsers ──────────────────────────────────────────────────────────────────
 
 function parseAuditPackages(text: string): AuditPackage[] {
+  if (text.trim().startsWith('{')) {
+    const result = readSecurityResult('audit', text);
+    const packages = new Map<string, AuditPackage>();
+    for (const f of result.findings) {
+      if (!packages.has(f.name)) packages.set(f.name, {
+        name: f.name, versionRange: f.version, severity: f.severity, advisories: [],
+        fix: f.fix ? (typeof f.fix === 'object' ? 'audit-fix-force' : 'audit-fix') : 'none',
+      });
+      const entry = packages.get(f.name)!;
+      entry.severity = worstOf(entry.severity, f.severity);
+      entry.advisories.push({ title: f.title, url: f.url });
+    }
+    return [...packages.values()];
+  }
   if (!text || text === 'Report not generated.') return [];
   const packages: AuditPackage[] = [];
   for (const block of text.split(/\n\n+/)) {
@@ -143,6 +168,19 @@ function parseAuditPackages(text: string): AuditPackage[] {
 }
 
 function parseSnykPackages(text: string): SnykPackage[] {
+  if (text.trim().startsWith('{')) {
+    const result = readSecurityResult('snyk', text);
+    const packages = new Map<string, SnykPackage>();
+    for (const f of result.findings) {
+      if (!packages.has(f.name)) packages.set(f.name, {
+        name: f.name, version: f.version, maxSeverity: f.severity, issues: [],
+      });
+      const entry = packages.get(f.name)!;
+      entry.maxSeverity = worstOf(entry.maxSeverity, f.severity);
+      entry.issues.push({ title: f.title, severity: f.severity, url: f.url, fixedIn: f.fixedIn });
+    }
+    return [...packages.values()];
+  }
   if (!text || text === 'Report not generated.') return [];
   const map = new Map<string, SnykPackage>();
   const lines = text.split('\n');
@@ -319,8 +357,14 @@ function buildSourceFilterBar(rows: ReportTableRow[]): string {
 // ─── Public summary parsers (used by upload script) ──────────────────────────
 
 export function parseAuditSummary(text: string): SeverityCounts {
+  if (text.trim().startsWith('{')) {
+    const result = readSecurityResult('audit', text);
+    return { ...(result.counts || { critical: NaN, high: NaN, moderate: NaN, low: NaN, total: NaN }), status: result.status };
+  }
   const c: SeverityCounts = { critical: 0, high: 0, moderate: 0, low: 0, total: 0 };
-  if (!text || text === 'Report not generated.') return c;
+  if (!text || text === 'Report not generated.' || /npm (?:ERR!|error)|authentication failed/i.test(text)) {
+    return { ...c, total: NaN, status: 'failed' };
+  }
   const m = text.match(/(\d+)\s+vulnerabilities?\s*\(([^)]+)\)/i);
   if (m) {
     c.total    = Number(m[1]); c.summaryLine = m[0];
@@ -329,20 +373,29 @@ export function parseAuditSummary(text: string): SeverityCounts {
     c.high     = Number((d.match(/(\d+)\s+high/i)      || [])[1] || 0);
     c.moderate = Number((d.match(/(\d+)\s+moderate/i)  || [])[1] || 0);
     c.low      = Number((d.match(/(\d+)\s+low/i)       || [])[1] || 0);
-    return c;
+    return { ...c, status: c.total ? 'findings' : 'clean' };
   }
-  if (text.includes('No vulnerabilities found')) return c;
+  if (/No vulnerabilities found|found 0 vulnerabilities/i.test(text)) return { ...c, status: 'clean' };
   c.critical = (text.match(/Severity:\s*critical/gi) || []).length;
   c.high     = (text.match(/Severity:\s*high/gi)     || []).length;
   c.moderate = (text.match(/Severity:\s*moderate/gi) || []).length;
   c.low      = (text.match(/Severity:\s*low/gi)      || []).length;
   c.total    = c.critical + c.high + c.moderate + c.low;
+  c.status = c.total ? 'findings' : 'failed';
+  if (!c.total) c.total = NaN;
   return c;
 }
 
 export function parseSnykSummary(text: string): SeverityCounts {
+  if (text.trim().startsWith('{')) {
+    const result = readSecurityResult('snyk', text);
+    return { ...(result.counts || { critical: NaN, high: NaN, moderate: NaN, low: NaN, total: NaN }), status: result.status };
+  }
   const c: SeverityCounts = { critical: 0, high: 0, moderate: 0, low: 0, total: 0 };
-  if (!text || text === 'Report not generated.') return c;
+  if (!text || text === 'Report not generated.' || /authentication failed|not authenticated|failed to|npm (?:ERR!|error)/i.test(text)) {
+    return { ...c, total: NaN, status: 'failed' };
+  }
+  if (/No vulnerabilities found|no vulnerable paths found/i.test(text)) return { ...c, status: 'clean' };
   const h = text.match(/found\s+(\d+)\s+issues?,?\s+(\d+)\s+vulnerable\s+paths/i);
   if (h) { c.issues = Number(h[1]); c.paths = Number(h[2]); }
   c.critical = (text.match(/\[Critical Severity\]/gi) || []).length;
@@ -351,6 +404,8 @@ export function parseSnykSummary(text: string): SeverityCounts {
   c.low      = (text.match(/\[Low Severity\]/gi)      || []).length;
   c.total    = c.critical + c.high + c.moderate + c.low;
   if (!c.total && c.issues) c.total = c.issues;
+  c.status = c.total ? 'findings' : 'failed';
+  if (!c.total) c.total = NaN;
   return c;
 }
 
@@ -362,6 +417,10 @@ export function buildSecurityReportText(input: SecurityReportInput): string {
   return ['Security Vulnerabilities Report', `Generated: ${new Date().toISOString()}`,
     `CLI: ${input.cliBinary || 'unknown'} ${input.cliVersion || ''}`.trim(),
     `Project: ${input.projectPath || 'n/a'}`,
+    `Environment: ${input.environment || 'unknown'}`,
+    `Project mode: ${input.projectMode || 'unknown'}`,
+    `npm audit: ${reportStatus(parseAuditSummary(auditBody), input.auditStatus)}`,
+    `Snyk: ${reportStatus(parseSnykSummary(snykBody), input.snykStatus)}`,
     `RN ZIP source: ${input.rnZipSource || 'Studio download'}`,
     '', '=== npm audit ===', auditBody, '', '=== Snyk ===', snykBody, ''].join('\n');
 }
@@ -374,7 +433,10 @@ export function buildSecurityReportHtml(input: SecurityReportInput): string {
   // Neither scanner produced output (e.g. RN ZIP download failed in before()). Without this,
   // zero parsed rows render as "0 issues / No vulnerabilities found" — a clean report for a
   // scan that never ran, which the S3 upload on post.failure then publishes.
-  const scanRan = auditBody !== REPORT_NOT_GENERATED || snykBody !== REPORT_NOT_GENERATED;
+  const auditStatus = reportStatus(parseAuditSummary(auditBody), input.auditStatus);
+  const snykStatus = reportStatus(parseSnykSummary(snykBody), input.snykStatus);
+  const complete = ['clean', 'findings'];
+  const scanRan = complete.includes(auditStatus) && complete.includes(snykStatus);
 
   const auditPkgs = parseAuditPackages(auditBody);
   const snykPkgs  = parseSnykPackages(snykBody);
@@ -397,13 +459,13 @@ export function buildSecurityReportHtml(input: SecurityReportInput): string {
   const sectionTitle = escapeHtml(releaseVersion) + ' Release';
   const footerDate = formatFooterDate();
   const filterBar = buildSourceFilterBar(tableRows);
-  const tableBody = scanRan
+  const tableBody = scanRan || tableRows.length > 0
     ? buildTableRowsHtml(tableRows)
-    : '<tr><td colspan="5" style="text-align:center;color:#b00020;padding:24px">Scan did not run — no npm audit or Snyk results were produced.</td></tr>';
+    : '<tr><td colspan="5" style="text-align:center;color:#b00020;padding:24px">No complete validated results — do not interpret this as zero vulnerabilities.</td></tr>';
   const shown = (n: number): string => (scanRan ? String(n) : '&mdash;');
   const incompleteBanner = scanRan
     ? ''
-    : '<p style="background:#fdecea;color:#b00020;border:1px solid #f5c2c0;border-radius:6px;padding:12px 16px;margin-bottom:1.5rem;font-weight:600">SCAN INCOMPLETE — no results were produced. This is not a clean report; check the build log.</p>';
+    : '<p style="background:#fdecea;color:#b00020;border:1px solid #f5c2c0;border-radius:6px;padding:12px 16px;margin-bottom:1.5rem;font-weight:600">SCAN INCOMPLETE — one or more scanners failed or were skipped. Available findings are retained. This is not a clean report; check the build log.</p>';
 
   const criticalCard = sevTotals.critical > 0
     ? '<div class="card crit-card"><div class="num">' + sevTotals.critical + '</div><div class="label">Critical</div></div>'
@@ -482,6 +544,7 @@ export function buildSecurityReportHtml(input: SecurityReportInput): string {
 <div class="container">
   <h1>Vulnerability Report</h1>
   <p class="subtitle">Security audit findings &mdash; npm audit &amp; Snyk &mdash; generated ${escapeHtml(footerDate)}</p>
+  <p class="subtitle">Environment: ${escapeHtml(input.environment || 'unknown')} &mdash; Project mode: ${escapeHtml(input.projectMode || 'unknown')}<br>npm audit: ${escapeHtml(auditStatus)} &mdash; Snyk: ${escapeHtml(snykStatus)}</p>
   ${incompleteBanner}
 
   <div class="summary-cards">

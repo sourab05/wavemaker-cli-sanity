@@ -31,6 +31,9 @@ detect_cli_variant() {
 detect_cli_variant
 
 configure_npm_registry() {
+  export WM_NPM_REGISTRY="${WM_NPM_REGISTRY:-https://repository.wavemaker.com/repository/wavemaker-npm-repo/}"
+  export npm_config_registry="$WM_NPM_REGISTRY"
+  export NPM_CONFIG_REGISTRY="$WM_NPM_REGISTRY"
   chmod +x "$SCRIPT_DIR/scripts/configure-npm-registry.sh"
   "$SCRIPT_DIR/scripts/configure-npm-registry.sh"
 }
@@ -253,6 +256,8 @@ echo "CLI_Version=$ACTIVE_CLI_VERSION" > allure-results/environment.properties
 echo "CLI_Platform=$CLI_PLATFORM" >> allure-results/environment.properties
 echo "CLI_Binary=$CLI_BINARY" >> allure-results/environment.properties
 echo "Branch=$BRANCH_NAME" >> allure-results/environment.properties
+echo "Environment=${STUDIO_URL:-unknown}" >> allure-results/environment.properties
+echo "Project_Mode=${PROJECT_MODE:-Existing Project}" >> allure-results/environment.properties
 echo "Package_Manager=$PKG_MANAGER" >> allure-results/environment.properties
 
 allure generate allure-results --clean --single-file -o allure-report

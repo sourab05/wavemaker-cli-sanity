@@ -72,8 +72,9 @@ def isSecurityRun() {
 }
 
 def cliTestScript(String mode, String specFiles, boolean firstPass, String modeLabel) {
+    def slug = mode.toLowerCase().replace(' ', '-')
     def allureSetup = firstPass ? """
-                        rm -rf allure-results allure-report
+                        rm -rf allure-results allure-report cli-reports
 
                         CLI_VERSION=\$(${env.CLI_BINARY} --version 2>/dev/null || echo 'unknown')
                         mkdir -p allure-results
@@ -84,6 +85,7 @@ def cliTestScript(String mode, String specFiles, boolean firstPass, String modeL
                         echo "Package_Manager=${params.PKG_MANAGER}" >> allure-results/environment.properties
                         echo "Run_Target=${params.RUN_TARGET}" >> allure-results/environment.properties
                         echo "Project_Mode=${modeLabel}" >> allure-results/environment.properties
+                        echo "Environment=\${STUDIO_URL}" >> allure-results/environment.properties
 """ : """
                         mkdir -p allure-results
 """
@@ -104,6 +106,7 @@ def cliTestScript(String mode, String specFiles, boolean firstPass, String modeL
                         # Loads .ci-project-env.sh (APP_NAME / APP_PACKAGE / APP_VERIFICATION_ID /
                         # WEB_PREVIEW_XPATH of the provisioned project) only when mode is New Project.
                         . scripts/source-ci-project-env.sh
+                        . scripts/apply-existing-project-overrides.sh
 
                         echo "--- RN ZIP env (masked) ---"
                         echo "STUDIO_URL=\${STUDIO_URL}"
@@ -115,6 +118,8 @@ def cliTestScript(String mode, String specFiles, boolean firstPass, String modeL
                         echo "APP_VERIFICATION_ID=\${APP_VERIFICATION_ID}"
                         echo "WEB_PREVIEW_XPATH=\${WEB_PREVIEW_XPATH}"
 ${allureSetup}
+                        # Per-mode snapshot: only the result files this pass adds (allure-results stays the union).
+                        ls allure-results | sort > .cli-before.txt
                         set +e
                         PACKAGE_MANAGER="${params.PKG_MANAGER}" \\
                         RUN_LOCAL="false" \\
@@ -127,6 +132,21 @@ ${allureSetup}
                         TEST_EXIT=\$?
                         set -e
 
+                        SNAP="cli-reports/${slug}"
+                        rm -rf "\$SNAP"; mkdir -p "\$SNAP/results"
+                        ls allure-results | sort | comm -13 .cli-before.txt - | while read -r f; do
+                            cp "allure-results/\$f" "\$SNAP/results/"
+                        done
+                        {
+                            echo "CLI_Binary=${env.CLI_BINARY}"
+                            echo "Branch=${env.EFFECTIVE_BRANCH}"
+                            echo "Package_Manager=${params.PKG_MANAGER}"
+                            echo "Project_Mode=${mode}"
+                            echo "Environment=\${STUDIO_URL}"
+                        } > "\$SNAP/results/environment.properties"
+                        npx allure generate "\$SNAP/results" --clean --single-file -o "\$SNAP/report" \\
+                            || echo "allure generate skipped for ${mode}"
+
                         exit \$TEST_EXIT
     """
 }
@@ -138,6 +158,7 @@ def sendBuildStatusEmail() {
         <tr><td><b>Status</b></td><td>${currentBuild.currentResult}</td></tr>
         <tr><td><b>Run Target</b></td><td>${params.RUN_TARGET}</td></tr>
         <tr><td><b>Project Mode</b></td><td>${selectedProjectMode()}</td></tr>
+        <tr><td><b>Environment</b></td><td>${params.EXISTING_STUDIO_URL?.trim() ?: env.STUDIO_URL}</td></tr>
         <tr><td><b>Package Manager</b></td><td>${params.PKG_MANAGER}</td></tr>
         <tr><td><b>S3 Version</b></td><td>${env.S3_VERSION}</td></tr>
     """
@@ -210,9 +231,34 @@ pipeline {
             description: 'Package manager mode for tests'
         )
         string(
+            name: 'EXISTING_USERNAME',
+            defaultValue: '',
+            description: 'Existing Project only: Studio username. Empty = Jenkins credentials (WM_CLI_USERNAME / SECURITY_WM_USERNAME).'
+        )
+        password(
+            name: 'EXISTING_PASSWORD',
+            defaultValue: '',
+            description: 'Existing Project only: Studio password. Empty = Jenkins credentials.'
+        )
+        string(
+            name: 'EXISTING_STUDIO_URL',
+            defaultValue: '',
+            description: 'Existing Project only: environment (Studio) URL, e.g. https://stage-studio.wavemakeronline.com. Empty = Jenkins credentials.'
+        )
+        string(
+            name: 'EXISTING_PROJECT_ID',
+            defaultValue: '',
+            description: 'Existing Project only: project ID (WMPRJ...). Empty = Jenkins credentials.'
+        )
+        string(
+            name: 'EXISTING_STUDIO_PROJECT_ID',
+            defaultValue: '',
+            description: 'Existing Project only: Studio jobs-API project id (proj-...) of the same project. Set together with EXISTING_PROJECT_ID.'
+        )
+        string(
             name: 'S3_VERSION',
             defaultValue: '',
-            description: 'S3 release folder under react_native/releases/<S3_VERSION>/. Leave empty for the default Weekly-YYYY-MM-DD (today, IST). Override e.g. WM-AI 1.0.0_BETA_RC4, 12.0.0'
+            description: 'S3 release folder under react_native/releases/<S3_VERSION>/. Leave empty for the default Weekly_YYYY-MM-DD (today, IST). Override e.g. WM-AI 1.0.0_BETA_RC4, 12.0.0'
         )
     }
 
@@ -238,8 +284,8 @@ pipeline {
         AWS_SECRET_ACCESS_KEY = credentials('AWS_SECRET_ACCESS_KEY')
         S3_REPORT_BUCKET      = credentials('S3_BUCKET_NAME')
         AWS_REGION            = 'us-west-2'
-        // ponytail: empty param => Weekly-<today IST>; same TZ as the 6 AM IST cron
-        S3_VERSION            = "${params.S3_VERSION?.trim() ?: sh(returnStdout: true, script: 'TZ=Asia/Kolkata date +Weekly-%Y-%m-%d').trim()}"
+        // Empty param => Weekly_<today IST>; same TZ as the 6 AM IST cron
+        S3_VERSION            = "${params.S3_VERSION?.trim() ?: sh(returnStdout: true, script: 'TZ=Asia/Kolkata date +Weekly_%Y-%m-%d').trim()}"
         S3_REPORT_VERSION     = "${S3_VERSION}"
         S3_REPORT_PROJECT     = 'Cli'
         S3_REPORT_FILENAME    = 'stage-ai-cli.html'
@@ -251,6 +297,8 @@ pipeline {
         SNYK_TOKEN        = credentials('SNYK_TOKEN')
 
         WM_NPM_REGISTRY = 'https://repository.wavemaker.com/repository/wavemaker-npm-repo/'
+        npm_config_registry = "${WM_NPM_REGISTRY}"
+        NPM_CONFIG_REGISTRY = "${WM_NPM_REGISTRY}"
 
         RN_BUILD_PROFILE = 'development'
         RN_BUILD_EMPTY_JOBS_POLL_LIMIT = '15'
@@ -306,7 +354,8 @@ pipeline {
         stage('Detect CLI Variant') {
             steps {
                 script {
-                    def studioUrl = env.STUDIO_URL ?: ''
+                    def override = params.EXISTING_STUDIO_URL?.trim()
+                    def studioUrl = (override && projectModes()[0] == 'Existing Project') ? override : (env.STUDIO_URL ?: '')
                     if (studioUrl.contains('platform.wavemaker.ai')) {
                         env.CLI_PLATFORM = 'ai'
                         env.CLI_PKG_NAME = '@wavemaker-ai/wm-reactnative-cli'
@@ -572,6 +621,7 @@ pipeline {
                     def results = []
                     def failed = false
 
+                    sh 'rm -rf security-reports-by-mode'
                     for (int i = 0; i < modes.size(); i++) {
                         patchSecurityCliUpdateNotifier()
                         // Keep earlier results: the CLI suite's (All Tests) and the previous mode's.
@@ -616,7 +666,8 @@ pipeline {
             '''
             archiveArtifacts artifacts: 'allure-report/**', allowEmptyArchive: true
             archiveArtifacts artifacts: 'allure-results/**', allowEmptyArchive: true
-            archiveArtifacts artifacts: 'security-report/**,security-reports/**', allowEmptyArchive: true
+            archiveArtifacts artifacts: 'cli-reports/*/report/**', allowEmptyArchive: true
+            archiveArtifacts artifacts: 'security-report/**,security-reports/**,security-reports-by-mode/**', allowEmptyArchive: true
             echo "Run complete. Platform: ${env.CLI_PLATFORM}, Branch: ${env.EFFECTIVE_BRANCH}, Target: ${params.RUN_TARGET}, PM: ${params.PKG_MANAGER}"
             script {
                 sendBuildStatusEmail()

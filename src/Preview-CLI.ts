@@ -8,6 +8,8 @@ import { remote, Browser } from 'webdriverio';
 import dotenv from 'dotenv';
 import { getPreviewCLIConfig, getPreviewUrl } from './config';
 import { runCommand } from './utils/run-command';
+import { startWebPreview } from './utils/web-preview';
+import { ensureNpmRegistry } from './utils/npm-registry';
 import { getCliVariant } from './utils/cli-variant';
 import { getAppVerificationSelectors, getWebPreviewXPath } from './utils/app-verification';
 
@@ -25,6 +27,7 @@ describe('WM CLI Sync Command and RUN Web Preview Command', function () {
 
   before(async function () {
     config = getPreviewCLIConfig();
+    ensureNpmRegistry(process.cwd());
     const loginPayload = qs.stringify({ j_username: config.auth.username, j_password: config.auth.password });
     const loginRes = await axios.post(config.loginUrl, loginPayload, { headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, maxRedirects: 0, validateStatus: (status) => status === 302 });
     const cookieLine = loginRes.headers['set-cookie']?.find((c) => c.startsWith('auth_cookie='));
@@ -160,47 +163,21 @@ describe('WM CLI Sync Command and RUN Web Preview Command', function () {
     }
   });
 
-  it('should run Expo web-preview and generate the Expo Web App', async function () {
-    const cookieValue = authCookie.split('=')[1].trim();
-    const runCmd = `npx ${cliVariant.packageName} run web-preview "${previewUrl}"`;
-    await runCommand(runCmd, {
-      timeout: config.syncTimeout,
-      successMessage: '✔ Project transpiled successfully',
-      onData: (text, child) => {
-        if (/token\s*:/i.test(text.trim())) {
-          child.stdin!.write(`${cookieValue}\n`);
-        }
-      },
+  for (const esbuild of [false, true]) {
+    it(`should run ${esbuild ? 'Esbuild' : 'Expo'} web-preview and verify the local app`, async function () {
+      const cookieValue = authCookie.split('=')[1].trim();
+      const runCmd = `npx ${cliVariant.packageName} run web-preview "${previewUrl}"${esbuild ? ' --esbuild' : ''}`;
+      const preview = await startWebPreview(runCmd, cookieValue, config.syncTimeout);
+      let browser: Browser | undefined;
+      try {
+        browser = await remote({ logLevel: 'error', capabilities: { browserName: 'chrome' } });
+        await browser.url(preview.url);
+        const el = await browser.$(getWebPreviewXPath());
+        await el.waitForDisplayed({ timeout: 180000 });
+      } finally {
+        try { await browser?.deleteSession(); }
+        finally { preview.stop(); }
+      }
     });
-
-    // Immediately after running the CLI, open the preview URL in a browser and check the placeholder XPath
-    const browser = await remote({
-      logLevel: 'error',
-      capabilities: { browserName: 'chrome' }
-    });
-    try {
-      await browser.url(previewUrl);
-      const placeholderXPath = getWebPreviewXPath();
-      const el = await browser.$(placeholderXPath);
-      await el.waitForDisplayed({ timeout: 30000 });
-      console.log('✅ XPath is visible, web preview is working.');
-    } finally {
-      await browser.deleteSession();
-    }
-  });
-
-  it('should run Esbuild web-preview and generate the Esbuild Web App', async function () {
-    const cookieValue = authCookie.split('=')[1].trim();
-    const runCmd = `npx ${cliVariant.packageName} run web-preview "${previewUrl}" --esbuild`;
-    await runCommand(runCmd, {
-      timeout: config.syncTimeout,
-      successMessage: '✔ Project transpiled successfully',
-      onData: (text, child) => {
-        if (/token\s*:/i.test(text.trim())) {
-          child.stdin!.write(`${cookieValue}\n`);
-        }
-      },
-    });
-  });
+  }
 });
-

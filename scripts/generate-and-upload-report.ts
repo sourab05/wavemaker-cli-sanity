@@ -73,6 +73,16 @@ async function main(): Promise<void> {
   console.log('--- Uploading report to S3 ---');
   const url = await uploadReportToS3({ reportDir });
   console.log(`--- Report uploaded: ${url} ---`);
+
+  // CLI runs leave one report per project mode (cli-reports/<existing-project|new-project>/report).
+  const modeRoot = path.resolve(process.cwd(), 'cli-reports');
+  if (!fs.existsSync(modeRoot)) return;
+  for (const slug of fs.readdirSync(modeRoot).sort()) {
+    const dir = path.join(modeRoot, slug, 'report');
+    if (!fs.existsSync(path.join(dir, 'index.html'))) continue;
+    const modeUrl = await uploadReportToS3({ reportDir: dir, s3Filename: `cli-${slug}.html` });
+    console.log(`--- ${slug} report uploaded: ${modeUrl} ---`);
+  }
 }
 
 main().catch((err) => {

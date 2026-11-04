@@ -1,11 +1,13 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import * as os from 'os';
 import { execSync } from 'child_process';
 import dotenv from 'dotenv';
 import assert from 'assert';
 import { createLogger } from '../../src/utils/Logger';
 import { getCliVariant } from '../../src/utils/cli-variant';
-import { runCommand } from '../../src/utils/run-command';
+import { runCommand, CommandError } from '../../src/utils/run-command';
+import { readSecurityResult, ScanStatus } from '../../src/utils/security-result';
 import { writeSecurityReport, writeSecurityReportTxt } from '../../src/utils/security-report';
 import {
   RnProjectManager,
@@ -20,7 +22,6 @@ import {
 } from '../../src/config/security-project';
 
 dotenv.config();
-applySecurityProjectEnv();
 
 const log = createLogger('SecurityVulnerabilitiesSpec');
 const variant = getCliVariant();
@@ -75,11 +76,12 @@ async function runSecurityCommand(
   label: string,
   command: string,
   fallbackReportPath: string
-): Promise<{ exitCode: number; reportPath: string; reportExists: boolean }> {
+): Promise<{ exitCode: number; reportPath: string; reportExists: boolean; status: ScanStatus }> {
   log.info(`Running ${label}: ${command}`);
   let exitCode = 0;
   let stdout = '';
   let stderr = '';
+  const startedAt = Date.now();
 
   try {
     const result = await runCommand(command, {
@@ -101,15 +103,27 @@ async function runSecurityCommand(
       stdout = result;
     }
   } catch (error: any) {
-    exitCode = 1;
+    exitCode = error instanceof CommandError ? error.exitCode ?? 2 : 2;
     const message = error.message || String(error);
-    stdout = message;
+    stdout = error instanceof CommandError ? error.stdout : message;
+    stderr = error instanceof CommandError ? error.stderr : '';
     log.warn(`${label} exited with error: ${message}`);
   }
 
   const combinedOutput = `${stdout}\n${stderr}`;
   const reportPath = resolveReportPathFromOutput(combinedOutput, fallbackReportPath);
-  const reportExists = fs.existsSync(reportPath);
+  const reportExists = fs.existsSync(reportPath) && fs.statSync(reportPath).mtimeMs >= startedAt - 1000;
+  let status: ScanStatus = 'failed';
+  if (reportExists && fs.statSync(reportPath).mtimeMs >= startedAt - 1000) {
+    const body = fs.readFileSync(reportPath, 'utf8');
+    const result = readSecurityResult(label === 'Snyk' ? 'snyk' : 'audit', body);
+    try {
+      const envelope = JSON.parse(body);
+      const fresh = Date.parse(envelope.startedAt) >= startedAt - 1000;
+      const expectedExit = result.status === 'findings' ? 1 : 0;
+      if (fresh && exitCode === expectedExit) status = result.status;
+    } catch { /* Invalid/stale reports are operational failures. */ }
+  }
 
   if (reportExists) {
     log.success(`${label} report saved: ${reportPath}`);
@@ -117,7 +131,7 @@ async function runSecurityCommand(
     log.error(`${label} report not found: ${reportPath}`);
   }
 
-  return { exitCode, reportPath, reportExists };
+  return { exitCode, reportPath, reportExists, status };
 }
 
 describe('CLI Security Vulnerabilities (npm audit + Snyk)', function () {
@@ -128,14 +142,24 @@ describe('CLI Security Vulnerabilities (npm audit + Snyk)', function () {
   let cliVersion = 'unknown';
   let auditReportPath = '';
   let snykReportPath = '';
+  let auditStatus: ScanStatus = 'failed';
+  let snykStatus: ScanStatus = 'failed';
+  let lockDir = '';
+  let previousLockDir: string | undefined;
+  let originalEnv: NodeJS.ProcessEnv = {};
 
   before(async function () {
+    originalEnv = { ...process.env };
     if (process.env.SKIP_SECURITY_SCAN === 'true') {
+      auditStatus = snykStatus = 'skipped';
       log.info('Skipping security scan (SKIP_SECURITY_SCAN=true)');
       this.skip();
     }
 
     applySecurityProjectEnv();
+    previousLockDir = process.env.SECURITY_LOCK_DIR;
+    lockDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wm-security-lock-'));
+    process.env.SECURITY_LOCK_DIR = lockDir;
     log.info(
       `Security project: ${process.env.SECURITY_PROJECT_ID} (${process.env.APP_NAME})`
     );
@@ -176,21 +200,24 @@ describe('CLI Security Vulnerabilities (npm audit + Snyk)', function () {
     const command = resolveCliAuditCommand('audit', zipPath);
     const fallbackReportPath = path.join(artifacts.projectPath, 'audit-report.txt');
 
-    const { exitCode, reportPath, reportExists } = await runSecurityCommand(
+    const { reportPath, reportExists, status } = await runSecurityCommand(
       'npm audit',
       command,
       fallbackReportPath
     );
-    auditReportPath = reportPath;
+    auditReportPath = reportExists ? reportPath : '';
+    auditStatus = status;
 
     assert.ok(reportExists, `Expected audit report at ${reportPath}`);
-    if (failOnVuln && exitCode !== 0) {
+    assert.notStrictEqual(status, 'failed', 'npm audit failed operationally or returned invalid results');
+    if (failOnVuln && status === 'findings') {
       assert.fail('npm audit reported vulnerabilities (SECURITY_FAIL_ON_VULN=true)');
     }
   });
 
   it('should run Snyk on Studio RN ZIP via CLI', async function () {
     if (!process.env.SNYK_TOKEN?.trim()) {
+      snykStatus = 'skipped';
       log.warn('Skipping Snyk scan (SNYK_TOKEN not set)');
       this.skip();
     }
@@ -202,15 +229,17 @@ describe('CLI Security Vulnerabilities (npm audit + Snyk)', function () {
     const command = resolveCliAuditCommand('snyk', zipPath);
     const fallbackReportPath = path.join(artifacts.projectPath, 'snyk-report.txt');
 
-    const { exitCode, reportPath, reportExists } = await runSecurityCommand(
+    const { reportPath, reportExists, status } = await runSecurityCommand(
       'Snyk',
       command,
       fallbackReportPath
     );
-    snykReportPath = reportPath;
+    snykReportPath = reportExists ? reportPath : '';
+    snykStatus = status;
 
     assert.ok(reportExists, `Expected Snyk report at ${reportPath}`);
-    if (failOnVuln && exitCode !== 0) {
+    assert.notStrictEqual(status, 'failed', 'Snyk failed operationally or returned invalid results');
+    if (failOnVuln && status === 'findings') {
       assert.fail('Snyk reported vulnerabilities (SECURITY_FAIL_ON_VULN=true)');
     }
   });
@@ -232,6 +261,10 @@ describe('CLI Security Vulnerabilities (npm audit + Snyk)', function () {
       rnZipPath: artifacts?.zipPath,
       rnZipSource: artifacts?.downloadUrl || process.env.RN_ZIP_DOWNLOAD_URL || 'Studio jobs API',
       releaseVersion: resolveSecurityReleaseVersion(),
+      auditStatus,
+      snykStatus,
+      environment: process.env.SECURITY_STUDIO_URL || process.env.STUDIO_URL || process.env.WM_ENVIRONMENT || 'unknown',
+      projectMode: process.env.PROJECT_MODE || 'unknown',
     };
 
     if (auditReportPath && fs.existsSync(auditReportPath)) {
@@ -267,5 +300,12 @@ describe('CLI Security Vulnerabilities (npm audit + Snyk)', function () {
       log.error(`Security scan INCOMPLETE — no RN ZIP was obtained, nothing was scanned. Report marked incomplete: ${htmlReportPath}`);
     }
     log.separator('Security Vulnerabilities Scan Complete');
+    if (lockDir) fs.rmSync(lockDir, { recursive: true, force: true });
+    if (previousLockDir === undefined) delete process.env.SECURITY_LOCK_DIR;
+    else process.env.SECURITY_LOCK_DIR = previousLockDir;
+    for (const key of new Set([...Object.keys(process.env), ...Object.keys(originalEnv)])) {
+      if (originalEnv[key] === undefined) delete process.env[key];
+      else process.env[key] = originalEnv[key];
+    }
   });
 });
