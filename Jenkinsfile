@@ -158,7 +158,6 @@ def sendBuildStatusEmail() {
         <tr><td><b>Status</b></td><td>${currentBuild.currentResult}</td></tr>
         <tr><td><b>Run Target</b></td><td>${params.RUN_TARGET}</td></tr>
         <tr><td><b>Project Mode</b></td><td>${selectedProjectMode()}</td></tr>
-        <tr><td><b>Environment</b></td><td>${params.EXISTING_STUDIO_URL?.trim() ?: env.STUDIO_URL}</td></tr>
         <tr><td><b>Package Manager</b></td><td>${params.PKG_MANAGER}</td></tr>
         <tr><td><b>S3 Version</b></td><td>${env.S3_VERSION}</td></tr>
     """
@@ -166,6 +165,7 @@ def sendBuildStatusEmail() {
     if (!isSecurityOnlyRun()) {
         rows += """
         <tr><td colspan="2"><b>CLI Tests</b></td></tr>
+        <tr><td><b>CLI Environment</b></td><td>${projectModes().contains('Existing Project') ? (params.CLI_EXISTING_STUDIO_URL?.trim() ?: env.STUDIO_URL) : env.STUDIO_URL}</td></tr>
         <tr><td><b>CLI Result</b></td><td>${env.CLI_RESULT ?: 'N/A'}</td></tr>
         <tr><td><b>CLI Platform</b></td><td>${env.CLI_PLATFORM}</td></tr>
         <tr><td><b>CLI Branch</b></td><td>${env.EFFECTIVE_BRANCH}</td></tr>
@@ -176,6 +176,7 @@ def sendBuildStatusEmail() {
     if (runsSecurityScan()) {
         rows += """
         <tr><td colspan="2"><b>Security Vulnerabilities</b></td></tr>
+        <tr><td><b>Security Environment</b></td><td>${projectModes().contains('Existing Project') ? (params.SECURITY_EXISTING_STUDIO_URL?.trim() ?: env.SECURITY_STUDIO_URL) : env.STUDIO_URL}</td></tr>
         <tr><td><b>Security Result</b></td><td>${env.SECURITY_RESULT ?: 'N/A'}</td></tr>
         <tr><td><b>Security Branch</b></td><td>${env.SECURITY_EFFECTIVE_BRANCH}</td></tr>
         <tr><td><b>Security Repo</b></td><td>${env.SECURITY_CLI_REPO_URL}</td></tr>
@@ -231,29 +232,54 @@ pipeline {
             description: 'Package manager mode for tests'
         )
         string(
-            name: 'EXISTING_USERNAME',
+            name: 'CLI_EXISTING_USERNAME',
             defaultValue: '',
-            description: 'Existing Project only: Studio username. Empty = Jenkins credentials (WM_CLI_USERNAME / SECURITY_WM_USERNAME).'
+            description: 'CLI Existing Project only: Studio username. Empty = WM_CLI_USERNAME Jenkins credential. Does not affect Security.'
         )
         password(
-            name: 'EXISTING_PASSWORD',
+            name: 'CLI_EXISTING_PASSWORD',
             defaultValue: '',
-            description: 'Existing Project only: Studio password. Empty = Jenkins credentials.'
+            description: 'CLI Existing Project only: Studio password. Empty = WM_CLI_PASSWORD Jenkins credential. Does not affect Security.'
         )
         string(
-            name: 'EXISTING_STUDIO_URL',
+            name: 'CLI_EXISTING_STUDIO_URL',
             defaultValue: '',
-            description: 'Existing Project only: environment (Studio) URL, e.g. https://stage-studio.wavemakeronline.com. Empty = Jenkins credentials.'
+            description: 'CLI Existing Project only: Studio URL. Empty = WM_CLI_STUDIO_URL Jenkins credential.'
         )
         string(
-            name: 'EXISTING_PROJECT_ID',
+            name: 'CLI_EXISTING_PROJECT_ID',
             defaultValue: '',
-            description: 'Existing Project only: project ID (WMPRJ...). Empty = Jenkins credentials.'
+            description: 'CLI Existing Project only: WMPRJ... ID. Empty = WM_CLI_PROJECT_ID. Set together with CLI_EXISTING_STUDIO_PROJECT_ID.'
         )
         string(
-            name: 'EXISTING_STUDIO_PROJECT_ID',
+            name: 'CLI_EXISTING_STUDIO_PROJECT_ID',
             defaultValue: '',
-            description: 'Existing Project only: Studio jobs-API project id (proj-...) of the same project. Set together with EXISTING_PROJECT_ID.'
+            description: 'CLI Existing Project only: proj-... jobs API ID. Empty = WM_CLI_STUDIO_PROJECT_ID. Must belong to the same CLI project.'
+        )
+        string(
+            name: 'SECURITY_EXISTING_USERNAME',
+            defaultValue: '',
+            description: 'Security Existing Project only: Studio username. Empty = SECURITY_WM_USERNAME Jenkins credential. Does not affect CLI.'
+        )
+        password(
+            name: 'SECURITY_EXISTING_PASSWORD',
+            defaultValue: '',
+            description: 'Security Existing Project only: Studio password. Empty = SECURITY_WM_PASSWORD Jenkins credential. Does not affect CLI.'
+        )
+        string(
+            name: 'SECURITY_EXISTING_STUDIO_URL',
+            defaultValue: '',
+            description: 'Security Existing Project only: Studio URL. Empty = SECURITY_WM_STUDIO_URL Jenkins credential.'
+        )
+        string(
+            name: 'SECURITY_EXISTING_PROJECT_ID',
+            defaultValue: '',
+            description: 'Security Existing Project only: WMPRJ... ID. Empty = SECURITY_WM_PROJECT_ID. Set together with SECURITY_EXISTING_STUDIO_PROJECT_ID.'
+        )
+        string(
+            name: 'SECURITY_EXISTING_STUDIO_PROJECT_ID',
+            defaultValue: '',
+            description: 'Security Existing Project only: proj-... jobs API ID. Empty = SECURITY_WM_STUDIO_PROJECT_ID. Must belong to the same Security project.'
         )
         string(
             name: 'S3_VERSION',
@@ -332,6 +358,9 @@ pipeline {
         SECURITY_PROJECT_ID        = credentials('SECURITY_WM_PROJECT_ID')
         SECURITY_STUDIO_URL        = credentials('SECURITY_WM_STUDIO_URL')
         SECURITY_STUDIO_PROJECT_ID = credentials('SECURITY_WM_STUDIO_PROJECT_ID')
+
+        // Jenkins exports build parameters automatically. Apply suite-specific overrides
+        // inside each Existing Project pass; never interpolate or trim passwords here.
     }
 
     stages {
@@ -354,7 +383,7 @@ pipeline {
         stage('Detect CLI Variant') {
             steps {
                 script {
-                    def override = params.EXISTING_STUDIO_URL?.trim()
+                    def override = params.CLI_EXISTING_STUDIO_URL?.trim()
                     def studioUrl = (override && projectModes()[0] == 'Existing Project') ? override : (env.STUDIO_URL ?: '')
                     if (studioUrl.contains('platform.wavemaker.ai')) {
                         env.CLI_PLATFORM = 'ai'
@@ -519,6 +548,7 @@ pipeline {
                             chmod +x scripts/source-ci-project-env.sh scripts/ci-smoke-test.sh
                             export PROJECT_MODE="${modes[i]}"
                             . scripts/source-ci-project-env.sh
+                            . scripts/apply-existing-project-overrides.sh
                             ./scripts/ci-smoke-test.sh
                         """
                     }
