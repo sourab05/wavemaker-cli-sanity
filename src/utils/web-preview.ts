@@ -1,6 +1,6 @@
 import { ChildProcess } from 'child_process';
 import axios from 'axios';
-import { runCommand } from './run-command';
+import { runCommand, createTokenPromptHandler } from './run-command';
 import { killProcess } from './process-utils';
 // Allow browser startup/navigation, the three-minute assertion, and cleanup after CLI startup.
 export function webPreviewTestTimeout(startupTimeout: number): number {
@@ -41,6 +41,7 @@ export async function startWebPreview(
   command: string, token: string, timeout: number, signal?: AbortSignal
 ): Promise<{ url: string; stop: () => void }> {
   let child: ChildProcess | undefined;
+  const handleTokenPrompt = createTokenPromptHandler(token);
   const started = Date.now();
   const stop = () => {
     signal?.removeEventListener('abort', stop);
@@ -54,7 +55,7 @@ export async function startWebPreview(
       resolveOnRegex: /Service proxy launched at\s+(https?:\/\/[^\s\x1b]+)(?=\s|\x1b)/i,
       onData: (text, process) => {
         child = process;
-        if (/token\s*:/i.test(text.trim())) process.stdin?.write(`${token}\n`);
+        handleTokenPrompt(text, process);
       },
     });
     const url = process.env.CLI_WEB_PREVIEW_URL || new URL('/rn-bundle/index.html', String(proxyUrl)).href;

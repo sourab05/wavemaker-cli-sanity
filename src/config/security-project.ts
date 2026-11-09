@@ -51,7 +51,7 @@ export function resolveSecurityStudioUrl(): string {
  */
 export function getSecurityStudioConfig(): SecurityStudioConfig {
   const username = process.env.SECURITY_USERNAME?.trim();
-  const password = process.env.SECURITY_PASSWORD?.trim();
+  const password = process.env.SECURITY_PASSWORD;
   if (!username || !password) {
     throw new Error(
       'Missing SECURITY_USERNAME and SECURITY_PASSWORD.\n' +
@@ -113,9 +113,7 @@ export function applySecurityProjectEnv(): void {
 
   process.env.STUDIO_URL = studioUrl;
   process.env.STUDIO_BASE_URL = studioUrl;
-  if (!process.env.LOGIN_URL?.trim()) {
-    process.env.LOGIN_URL = `${studioUrl}/login/authenticate`;
-  }
+  process.env.LOGIN_URL = `${studioUrl}/login/authenticate`;
 
   if (process.env.SECURITY_STUDIO_PROJECT_ID?.trim()) {
     process.env.STUDIO_PROJECT_ID = process.env.SECURITY_STUDIO_PROJECT_ID.trim();

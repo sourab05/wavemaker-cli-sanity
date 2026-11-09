@@ -7,14 +7,16 @@ if [ "${PROJECT_MODE:-Existing Project}" != "New Project" ]; then
   return 0 2>/dev/null || exit 0
 fi
 
-set -a
-if [ -f "${CI_PROJECT_ENV_FILE:-${WORKSPACE:-.}/.ci-project-env.sh}" ]; then
-  # shellcheck disable=SC1090
-  . "${CI_PROJECT_ENV_FILE:-${WORKSPACE:-.}/.ci-project-env.sh}"
-  echo "--- Loaded dynamic project env from .ci-project-env.sh ---"
-elif [ -f ".ci-project-env.sh" ]; then
-  # shellcheck disable=SC1091
-  . ".ci-project-env.sh"
-  echo "--- Loaded dynamic project env from .ci-project-env.sh ---"
-fi
-set +a
+_project_env_file="${CI_PROJECT_ENV_FILE:-${WORKSPACE:-.}/.ci-project-env.sh}"
+# Validate provenance before sourcing IDs; no fallback to an unrelated workspace.
+_new_project_validate_file="$_project_env_file"
+. scripts/apply-new-project-overrides.sh || {
+  unset _new_project_validate_file
+  unset _project_env_file
+  return 1 2>/dev/null || exit 1
+}
+unset _new_project_validate_file
+# shellcheck disable=SC1090
+. "$_project_env_file"
+unset _project_env_file
+echo "--- Loaded context-validated dynamic project env ---"

@@ -12,7 +12,7 @@ A standalone framework for testing WaveMaker React Native CLI functionality, inc
 
 ## Prerequisites
 
-- Node.js (v14 or higher)
+- A Node.js version supported by the selected CLI and generated project. Current AI codegen requires Node.js 22.13 or higher; Node 22.11 fails when loading its ESM dependencies.
 - npm or yarn
 - WaveMaker CLI (`@wavemaker-ai/wm-reactnative-cli`)
 - Android SDK (for Android builds)
@@ -102,6 +102,65 @@ Key environment variables (see `.env.example` for full list):
 - `IOS_P12_CERT_PATH`: Path to iOS certificate (for iOS builds)
 - `IOS_PROVISION_PROFILE_PATH`: Path to iOS provisioning profile
 
+### Jenkins project-mode overrides and run reports
+
+New Project creates one fresh project shared by CLI and security. The optional build parameters
+`NEW_PROJECT_STUDIO_URL`, `NEW_PROJECT_USERNAME`, and masked `NEW_PROJECT_PASSWORD` select its
+environment/account. Each blank field falls back to the corresponding CLI default; passwords
+are preserved exactly. These inputs never modify Jenkins global credentials or `.env`.
+
+Existing Project keeps using the independent `CLI_EXISTING_*` and `SECURITY_EXISTING_*` inputs.
+When selecting a different Existing project, set `CLI_EXISTING_WEB_PREVIEW_XPATH` and
+`CLI_EXISTING_APP_VERIFICATION_ID` to app-specific visible elements from that project's
+screen. Empty values keep the existing defaults; these inputs never affect the New pass.
+In Both, each pass runs in its own shell: Existing inputs do not affect New, and New inputs
+do not affect Existing. Both can use different URLs/accounts within the same CLI variant.
+Mixing classic and AI environments in a CLI Both build is rejected before provisioning;
+use separate builds instead. Security-only Both uses its dedicated security fork.
+Nightly runs still select New Project. AppChef Version does not provision a project.
+
+Local runs accept the same `NEW_PROJECT_*` environment variables or `.env` entries. Use
+`PROJECT_MODE="New Project"` with `run-cli-tests.sh`, or run provisioning followed by
+`scripts/source-ci-project-env.sh` before a direct test command. Local Both is not supported;
+use Jenkins or separate local processes. Supply credentials through environment variables
+or a secret manager, not command-line literals. A stale direct ZIP or build-skip setting
+is ignored in New Project mode so the new app is actually tested.
+
+The generated `.ci-project-env.sh` contains project/app identifiers and non-secret provenance,
+not passwords or usernames. Loading it requires a matching environment/account. Provisioning
+deletes a previous project only if its provenance matches; old files without provenance and
+files from another environment/account are not used for deletion. Provisioning invalidates
+old IDs before attempting creation, so failure cannot silently reuse an old app.
+The creation payload uses the deployed Studio version from its about API. Account app quotas
+still apply: `MAX_APPS_LIMIT_REACHED` requires available capacity or a different account;
+the runner does not delete unrelated projects to make room.
+
+Every executed CLI/security pass records:
+- Studio environment URL and project mode.
+- Effective Studio username and whether username/password came from an override or defaults.
+- WMPRJ project ID and Studio `proj-...` jobs API ID.
+
+Combined Allure reports use separate `CLI_Existing_Project_*`, `CLI_New_Project_*`,
+`Security_Existing_Project_*`, and `Security_New_Project_*` environment keys. Per-mode CLI
+reports and security HTML/text/JSON retain their own identities. Publishing uses saved
+security metadata, not the final process environment. Passwords, tokens and cookies are
+excluded. Reports now contain account/project identifiers; restrict report access accordingly.
+The existing S3 uploader uses `public-read`, so these identifiers will be public where that
+ACL is honored.
+
+Report directories are cleared before Jenkins checkout/setup. If initialization or setup
+fails before tests run, stale reports are not generated or uploaded. Available current-run
+failures and partial security scans remain reportable; an incomplete scan is never labeled clean.
+Security dependency installation uses the WaveMaker registry; only `npm audit` queries
+`https://registry.npmjs.org/`, because the WaveMaker Nexus endpoint does not provide audit
+advisories. Snyk requires a valid `SNYK_TOKEN` for the configured Snyk endpoint. Authentication
+and registry failures fail the scan; they are not treated as zero vulnerabilities.
+With `SECURITY_FAIL_ON_VULN=false`, a successfully completed scan can pass while reporting
+findings. Set it to `true` to make findings fail the test.
+
+Offline validation: `npm run test:unit`, `npx tsc --noEmit`, and shell syntax checks.
+Offline passes do not establish live Studio, BrowserStack, build-tool or S3 availability.
+
 ### Project Structure
 
 ```
@@ -157,6 +216,17 @@ wavemaker-cli-sanity/
    - Generates Expo web preview
    - Generates Esbuild web preview
    - Verifies preview in browser
+
+AI CLI setup applies checked compatibility patches for nested Expo CLI dependencies and
+generated apps without `expo-camera`. Cached installations still run compatibility steps;
+required patch failures abort startup. Modern Expo uses process-scoped `BROWSER=none`
+to prevent automatic browser launches; WebDriver still verifies the configured visible app
+element after HTTP readiness. An HTTP response alone is not a passing preview test.
+Local Metro bundle requests use a separate, non-pooled connection with a two-minute
+timeout so they cannot inherit timeout listeners from Axios HTML-request sockets.
+An upstream bundle connection reset returns HTTP 502 instead of terminating the proxy.
+The visible-element check must still pass; proxy error recovery does not mark a broken
+or blank preview as successful.
 
 ## Customization
 

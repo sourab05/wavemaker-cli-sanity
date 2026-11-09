@@ -5,9 +5,18 @@ set -e
 
 # --- Load Studio / project mode from .env for early variant detection ---
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+cd "$SCRIPT_DIR"
+{ set +x; } 2>/dev/null
 if [ -f "$SCRIPT_DIR/.env" ]; then
   # shellcheck disable=SC1090
   eval "$(bash "$SCRIPT_DIR/scripts/load-dotenv.sh" "$SCRIPT_DIR/.env")"
+fi
+
+. "$SCRIPT_DIR/scripts/apply-existing-project-overrides.sh"
+. "$SCRIPT_DIR/scripts/apply-new-project-overrides.sh"
+if [ "${PROJECT_MODE:-Existing Project}" = "Both" ]; then
+  echo "Use Jenkins for Both, or run separate local Existing Project and New Project processes."
+  exit 1
 fi
 
 # --- CLI variant detection from STUDIO_URL ---
@@ -69,7 +78,7 @@ if [ "${3:-}" = "security" ] || [ "${1:-}" = "security" ]; then
     SECURITY_BRANCH="$1"
   fi
   echo "--- PROJECT_MODE: ${PROJECT_MODE:-Existing Project} ---"
-  if [ "${PROJECT_MODE:-Existing Project}" = "New Project" ] && [ ! -f "$SCRIPT_DIR/.ci-project-env.sh" ]; then
+  if [ "${PROJECT_MODE:-Existing Project}" = "New Project" ]; then
     echo "--- Provisioning new Studio project for security scan ---"
     PROJECT_MODE="New Project" npx ts-node "$SCRIPT_DIR/scripts/provision-studio-project.ts"
   fi
@@ -222,10 +231,7 @@ echo "--- Running automation tests (PACKAGE_MANAGER=$PKG_MANAGER) ---"
 if [ "${PROJECT_MODE:-Existing Project}" = "New Project" ]; then
   echo "--- Provisioning new Studio project (PROJECT_MODE=New Project) ---"
   PROJECT_MODE="New Project" npx ts-node "$AUTOMATION_REPO_PATH/scripts/provision-studio-project.ts"
-  set -a
-  # shellcheck disable=SC1091
-  . "$AUTOMATION_REPO_PATH/.ci-project-env.sh"
-  set +a
+  . "$AUTOMATION_REPO_PATH/scripts/source-ci-project-env.sh"
 fi
 
 # Clean previous allure results so reports only contain current run
@@ -261,13 +267,14 @@ echo "Environment=${STUDIO_URL:-unknown}" >> allure-results/environment.properti
 echo "Project_Mode=${PROJECT_MODE:-Existing Project}" >> allure-results/environment.properties
 echo "Package_Manager=$PKG_MANAGER" >> allure-results/environment.properties
 
+node -r ts-node/register scripts/write-run-identity.ts CLI allure-results --all
 allure generate allure-results --clean --single-file -o allure-report
 
 echo "--- Single-file Allure report generated: $AUTOMATION_REPO_PATH/allure-report/index.html ---"
 
 # --- Upload single HTML report to S3 as cli.html ---
 if [ -f "$AUTOMATION_REPO_PATH/.env" ]; then
-  export $(grep -v '^#' "$AUTOMATION_REPO_PATH/.env" | grep -E '^(S3_|AWS_)' | xargs)
+  eval "$(bash "$AUTOMATION_REPO_PATH/scripts/load-dotenv.sh" "$AUTOMATION_REPO_PATH/.env")"
 fi
 
 S3_BUCKET="${S3_REPORT_BUCKET:-}"

@@ -11,67 +11,50 @@
  * Optional: S3_REPORT_VERSION / S3_VERSION, S3_REPORT_PROJECT, S3_REPORT_FILENAME
  */
 
-import { execSync } from 'child_process';
+import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import { uploadReportToS3 } from '../src/s3/upload-report';
+import { canPublishReports, hasAllureResults, isJenkinsBuild } from '../src/utils/report-artifacts';
 
-function generateAllureReport(): boolean {
-  const resultsDir = path.resolve(process.cwd(), 'allure-results');
-  if (!fs.existsSync(resultsDir)) {
-    console.warn(
-      'allure-results/ not found. Run tests with allure-mocha first, or pass a pre-generated report dir.'
-    );
+export function generateAllureReport(resultsDir: string, reportDir: string): boolean {
+  // Never leave old/partial HTML behind after a skipped or failed generation.
+  fs.rmSync(reportDir, { recursive: true, force: true });
+  if (!hasAllureResults(resultsDir)) {
+    console.warn(`No valid Allure test results in ${resultsDir} — skipping report generation.`);
     return false;
   }
-
-  const entries = fs.readdirSync(resultsDir).filter((name) => !name.startsWith('.'));
-  if (entries.length === 0) {
-    console.warn('allure-results/ is empty — skipping report generation.');
-    return false;
-  }
-
   console.log('--- Generating single-file Allure report ---');
-  const generateCmd =
-    'npx allure generate allure-results --clean --single-file -o allure-report';
   try {
-    execSync(generateCmd, { stdio: 'inherit', cwd: process.cwd() });
-    console.log('--- Single-file Allure report generated ---');
-    return true;
+    execFileSync('npx', ['allure', 'generate', resultsDir, '--clean', '--single-file', '-o', reportDir],
+      { stdio: 'inherit', cwd: process.cwd() });
+    return fs.existsSync(path.join(reportDir, 'index.html'));
   } catch (error) {
-    console.warn(`Allure generate failed (${generateCmd})`);
+    fs.rmSync(reportDir, { recursive: true, force: true });
     throw error;
   }
 }
 
-async function main(): Promise<void> {
-  require('dotenv').config();
-
-  const reportDir =
-    process.argv[2] ||
-    path.resolve(process.cwd(), 'allure-report');
-
-  if (!fs.existsSync(reportDir)) {
-    generateAllureReport();
+export async function main(
+  args: string[] = process.argv.slice(2),
+  upload = uploadReportToS3,
+  generate = generateAllureReport
+): Promise<void> {
+  if (!canPublishReports()) {
+    console.warn('Skipping CLI publishing: report initialization did not complete for this Jenkins build.');
+    return;
   }
-
-  if (!fs.existsSync(reportDir)) {
-    console.error(`Report directory not found: ${reportDir}`);
-    process.exit(1);
+  const reportDir = path.resolve(isJenkinsBuild() ? 'allure-report' : (args[0] || 'allure-report'));
+  // Explicit pre-generated reports remain supported locally, not in Jenkins.
+  if (!args[0] || isJenkinsBuild()) {
+    if (!generate(path.resolve('allure-results'), reportDir)) return;
   }
-
-  const indexPath = path.join(reportDir, 'index.html');
-  if (!fs.existsSync(indexPath)) {
-    generateAllureReport();
-  }
-
-  if (!fs.existsSync(indexPath)) {
-    console.error(`Single-file report not found: ${indexPath}`);
-    process.exit(1);
+  if (!fs.existsSync(path.join(reportDir, 'index.html'))) {
+    throw new Error(`Single-file report not found: ${reportDir}`);
   }
 
   console.log('--- Uploading report to S3 ---');
-  const url = await uploadReportToS3({ reportDir });
+  const url = await upload({ reportDir });
   console.log(`--- Report uploaded: ${url} ---`);
 
   // CLI runs leave one report per project mode (cli-reports/<existing-project|new-project>/report).
@@ -79,13 +62,16 @@ async function main(): Promise<void> {
   if (!fs.existsSync(modeRoot)) return;
   for (const slug of fs.readdirSync(modeRoot).sort()) {
     const dir = path.join(modeRoot, slug, 'report');
-    if (!fs.existsSync(path.join(dir, 'index.html'))) continue;
-    const modeUrl = await uploadReportToS3({ reportDir: dir, s3Filename: `cli-${slug}.html` });
+    if (!generate(path.join(modeRoot, slug, 'results'), dir)) continue;
+    const modeUrl = await upload({ reportDir: dir, s3Filename: `cli-${slug}.html` });
     console.log(`--- ${slug} report uploaded: ${modeUrl} ---`);
   }
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+if (require.main === module) {
+  require('dotenv').config();
+  main().catch((err) => {
+    console.error(err);
+    process.exitCode = 1;
+  });
+}

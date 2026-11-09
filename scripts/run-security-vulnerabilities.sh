@@ -23,6 +23,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
+{ set +x; } 2>/dev/null
 if [ -f "$ROOT/.env" ]; then
   # shellcheck disable=SC1090
   eval "$(bash "$ROOT/scripts/load-dotenv.sh" "$ROOT/.env")"
@@ -305,6 +306,9 @@ else
   echo "S3_Project=$S3_REPORT_PROJECT" >> allure-results/environment.properties
 fi
 
+node -r ts-node/register scripts/write-run-identity.ts Security allure-results
+ls allure-results > .security-before.txt
+
 set +e
 RUN_LOCAL="${RUN_LOCAL:-false}" \
 HEADLESS="${HEADLESS:-true}" \
@@ -320,6 +324,7 @@ npx mocha \
 MOCHA_EXIT=$?
 set -e
 TEST_EXIT="${MOCHA_EXIT:-1}"
+node -r ts-node/register scripts/write-run-identity.ts Security allure-results .security-before.txt
 
 echo "--- Generating Allure report (optional) ---"
 if [ -d allure-results ] && [ "$(ls -A allure-results 2>/dev/null)" ]; then

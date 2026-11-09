@@ -17,6 +17,10 @@ export interface SecurityReportInput {
   releaseVersion?: string;
   environment?: string;
   projectMode?: string;
+  username?: string;
+  credentialSource?: string;
+  projectId?: string;
+  studioProjectId?: string;
   auditStatus?: ScanStatus;
   snykStatus?: ScanStatus;
 }
@@ -419,6 +423,10 @@ export function buildSecurityReportText(input: SecurityReportInput): string {
     `Project: ${input.projectPath || 'n/a'}`,
     `Environment: ${input.environment || 'unknown'}`,
     `Project mode: ${input.projectMode || 'unknown'}`,
+    `Studio username: ${input.username || 'unknown'}`,
+    `Credential source: ${input.credentialSource || 'not recorded (legacy report)'}`,
+    `Project ID: ${input.projectId || 'unknown'}`,
+    `Studio project ID: ${input.studioProjectId || 'unknown'}`,
     `npm audit: ${reportStatus(parseAuditSummary(auditBody), input.auditStatus)}`,
     `Snyk: ${reportStatus(parseSnykSummary(snykBody), input.snykStatus)}`,
     `RN ZIP source: ${input.rnZipSource || 'Studio download'}`,
@@ -545,6 +553,16 @@ export function buildSecurityReportHtml(input: SecurityReportInput): string {
   <h1>Vulnerability Report</h1>
   <p class="subtitle">Security audit findings &mdash; npm audit &amp; Snyk &mdash; generated ${escapeHtml(footerDate)}</p>
   <p class="subtitle">Environment: ${escapeHtml(input.environment || 'unknown')} &mdash; Project mode: ${escapeHtml(input.projectMode || 'unknown')}<br>npm audit: ${escapeHtml(auditStatus)} &mdash; Snyk: ${escapeHtml(snykStatus)}</p>
+  <div class="table-wrapper">
+    <h2 class="section-title">Run configuration</h2>
+    <table><tbody>
+      <tr><td>Studio username</td><td>${escapeHtml(input.username || 'unknown')}</td></tr>
+      <tr><td>Credential source</td><td>${escapeHtml(input.credentialSource || 'not recorded (legacy report)')}</td></tr>
+      <tr><td>Project ID</td><td>${escapeHtml(input.projectId || 'unknown')}</td></tr>
+      <tr><td>Studio project ID</td><td>${escapeHtml(input.studioProjectId || 'unknown')}</td></tr>
+    </tbody></table>
+    <p>Passwords, tokens and cookies are never included.</p>
+  </div>
   ${incompleteBanner}
 
   <div class="summary-cards">

@@ -5,6 +5,7 @@
  */
 
 import * as path from 'path';
+import * as fs from 'fs';
 import dotenv from 'dotenv';
 import { StudioProjectService } from '../src/services/StudioProjectService';
 import {
@@ -12,10 +13,11 @@ import {
   readCiProjectEnvFile,
   writeCiProjectEnvFile,
 } from '../src/utils/studio-project-env';
+import { applyNewProjectOverrides, getProvisioningContext, sameProvisioningContext } from '../src/utils/new-project-env';
 
-dotenv.config();
-
-async function main(): Promise<void> {
+export async function main(
+  service: Pick<typeof StudioProjectService, 'createNewProjectFromEnv' | 'deleteProjectFromEnv'> = StudioProjectService
+): Promise<void> {
   if (!isNewProjectMode()) {
     console.log('--- PROJECT_MODE is not "New Project" — skipping Studio provisioning ---');
     return;
@@ -25,23 +27,25 @@ async function main(): Promise<void> {
     process.env.CI_PROJECT_ENV_FILE ||
     path.resolve(process.cwd(), '.ci-project-env.sh');
 
-  // The workspace isn't wiped until after the build (Jenkinsfile post.cleanup), so this
-  // file still holds the project the previous New Project run created. Delete it before
-  // provisioning a new one — best-effort: a failed/missing delete must not block today's run.
   const previous = readCiProjectEnvFile(outputPath);
-  if (previous?.studioProjectId) {
+  // Invalidate previous IDs even if configuration/login/create fails below.
+  fs.rmSync(outputPath, { force: true });
+  applyNewProjectOverrides();
+  const context = getProvisioningContext();
+  if (previous?.studioProjectId && sameProvisioningContext(previous.context, context)) {
     console.log(`--- Deleting previously provisioned project ${previous.studioProjectId} ---`);
     try {
-      await StudioProjectService.deleteProjectFromEnv(previous.studioProjectId);
+      await service.deleteProjectFromEnv(previous.studioProjectId);
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      console.warn(`--- Could not delete previous project (continuing): ${message} ---`);
+      console.warn('--- Could not delete previous project (continuing) ---');
     }
+  } else if (previous?.studioProjectId) {
+    console.log('--- Skipping previous project cleanup: environment/account context differs or is unknown ---');
   }
 
-  const created = await StudioProjectService.createNewProjectFromEnv();
+  const created = await service.createNewProjectFromEnv();
 
-  writeCiProjectEnvFile(outputPath, created);
+  writeCiProjectEnvFile(outputPath, created, context);
 
   console.log('--- Studio project provisioned ---');
   console.log(`  WM_PROJECT_ID:      ${created.wmProjectId}`);
@@ -52,7 +56,20 @@ async function main(): Promise<void> {
   console.log(`  Env file:           ${outputPath}`);
 }
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.message : error);
-  process.exit(1);
-});
+export function provisioningErrorSummary(error: unknown, env: NodeJS.ProcessEnv = process.env): string {
+  let message = error instanceof Error ? error.message : 'Unknown provisioning error';
+  const secrets = Object.entries(env)
+    .filter(([key, value]) => value && /password|pass$|token|secret|cookie|access_key|username|wmo_user/i.test(key))
+    .map(([, value]) => value!).sort((a, b) => b.length - a.length);
+  for (const secret of secrets) message = message.split(secret).join('[REDACTED]');
+  return message.replace(/([?&](?:token|auth|auth_cookie|access_token)=)[^\s&"']+/gi, '$1[REDACTED]')
+    .replace(/(auth_cookie=)[^;\s"']+/gi, '$1[REDACTED]').slice(0, 1500);
+}
+
+if (require.main === module) {
+  dotenv.config();
+  main().catch((error) => {
+    console.error(`Studio provisioning failed; no reusable project file was written. ${provisioningErrorSummary(error)}`);
+    process.exitCode = 1;
+  });
+}

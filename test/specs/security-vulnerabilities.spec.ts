@@ -9,6 +9,7 @@ import { getCliVariant } from '../../src/utils/cli-variant';
 import { runCommand, CommandError } from '../../src/utils/run-command';
 import { readSecurityResult, ScanStatus } from '../../src/utils/security-result';
 import { writeSecurityReport, writeSecurityReportTxt } from '../../src/utils/security-report';
+import { getRunIdentity, writeRunIdentity, reportUrl } from '../../src/utils/run-identity';
 import {
   RnProjectManager,
   RnProjectArtifacts,
@@ -157,6 +158,7 @@ describe('CLI Security Vulnerabilities (npm audit + Snyk)', function () {
     }
 
     applySecurityProjectEnv();
+    writeRunIdentity(path.resolve('allure-results'), 'Security');
     previousLockDir = process.env.SECURITY_LOCK_DIR;
     lockDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wm-security-lock-'));
     process.env.SECURITY_LOCK_DIR = lockDir;
@@ -259,12 +261,12 @@ describe('CLI Security Vulnerabilities (npm audit + Snyk)', function () {
       cliBinary,
       projectPath: artifacts?.projectPath,
       rnZipPath: artifacts?.zipPath,
-      rnZipSource: artifacts?.downloadUrl || process.env.RN_ZIP_DOWNLOAD_URL || 'Studio jobs API',
+      rnZipSource: artifacts?.downloadUrl || process.env.RN_ZIP_DOWNLOAD_URL
+        ? reportUrl(artifacts?.downloadUrl || process.env.RN_ZIP_DOWNLOAD_URL) : 'Studio jobs API',
       releaseVersion: resolveSecurityReleaseVersion(),
       auditStatus,
       snykStatus,
-      environment: process.env.SECURITY_STUDIO_URL || process.env.STUDIO_URL || process.env.WM_ENVIRONMENT || 'unknown',
-      projectMode: process.env.PROJECT_MODE || 'unknown',
+      ...getRunIdentity('Security'),
     };
 
     if (auditReportPath && fs.existsSync(auditReportPath)) {

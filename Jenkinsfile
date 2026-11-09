@@ -1,5 +1,9 @@
 def uploadReportsToS3(Map args = [:]) {
     def nonFatal = args.nonFatal == true
+    if (!env.BUILD_TAG || env.REPORT_RUN_ID != env.BUILD_TAG || !fileExists('allure-report/index.html')) {
+        echo '--- Skipping CLI upload: no report generated for this build ---'
+        return
+    }
     if (!env.S3_REPORT_BUCKET?.trim()) {
         echo '--- Skipping S3 upload (S3_REPORT_BUCKET not set) ---'
         return
@@ -14,6 +18,11 @@ def uploadReportsToS3(Map args = [:]) {
 
 def uploadSecurityReportsToS3(Map args = [:]) {
     def nonFatal = args.nonFatal == true
+    if (!env.BUILD_TAG || env.REPORT_RUN_ID != env.BUILD_TAG ||
+        (!fileExists('security-reports/report-meta.json') && !fileExists('security-reports-by-mode'))) {
+        echo '--- Skipping security upload: no scan report generated for this build ---'
+        return
+    }
     if (!env.S3_REPORT_BUCKET?.trim()) {
         echo '--- Skipping security S3 upload (S3_REPORT_BUCKET not set) ---'
         return
@@ -38,19 +47,26 @@ def selectedProjectMode() {
 // 'Both' runs the suite once per mode: existing Studio project first, then the provisioned one.
 // Scripts never see 'Both' — each pass is handed a concrete PROJECT_MODE.
 def projectModes() {
+    // Version-only checks do not provision or use a Studio project.
+    if (params.RUN_TARGET == 'AppChef Version') return ['Existing Project']
     def mode = selectedProjectMode()
     if (mode != 'Both') {
         return [mode]
-    }
-    // AppChef Version only asserts the CLI version — project-independent, one pass is enough.
-    if (params.RUN_TARGET == 'AppChef Version') {
-        return ['Existing Project']
     }
     return ['Existing Project', 'New Project']
 }
 
 def shouldProvisionNewProject() {
     return projectModes().contains('New Project') && params.RUN_TARGET != 'AppChef Version'
+}
+def reportEnvironments(boolean security = false) {
+    return projectModes().collect { mode ->
+        def url = mode == 'New Project'
+            ? (params.NEW_PROJECT_STUDIO_URL?.trim() ?: env.STUDIO_URL)
+            : (security ? (params.SECURITY_EXISTING_STUDIO_URL?.trim() ?: env.SECURITY_STUDIO_URL)
+                        : (params.CLI_EXISTING_STUDIO_URL?.trim() ?: env.STUDIO_URL))
+        return "${mode}: ${url ?: 'unknown'}".replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+    }.join('<br/>')
 }
 
 def isSecurityOnlyRun() {
@@ -118,6 +134,7 @@ def cliTestScript(String mode, String specFiles, boolean firstPass, String modeL
                         echo "APP_VERIFICATION_ID=\${APP_VERIFICATION_ID}"
                         echo "WEB_PREVIEW_XPATH=\${WEB_PREVIEW_XPATH}"
 ${allureSetup}
+                        node -r ts-node/register scripts/write-run-identity.ts CLI allure-results
                         # Per-mode snapshot: only the result files this pass adds (allure-results stays the union).
                         ls allure-results | sort > .cli-before.txt
                         set +e
@@ -131,6 +148,7 @@ ${allureSetup}
                             ${specFiles}
                         TEST_EXIT=\$?
                         set -e
+                        node -r ts-node/register scripts/write-run-identity.ts CLI allure-results .cli-before.txt
 
                         SNAP="cli-reports/${slug}"
                         rm -rf "\$SNAP"; mkdir -p "\$SNAP/results"
@@ -144,8 +162,12 @@ ${allureSetup}
                             echo "Project_Mode=${mode}"
                             echo "Environment=\${STUDIO_URL}"
                         } > "\$SNAP/results/environment.properties"
-                        npx allure generate "\$SNAP/results" --clean --single-file -o "\$SNAP/report" \\
-                            || echo "allure generate skipped for ${mode}"
+                        node -r ts-node/register scripts/write-run-identity.ts CLI "\$SNAP/results"
+                        set -- "\$SNAP/results/"*-result.json
+                        if [ -f "\$1" ]; then
+                            npx allure generate "\$SNAP/results" --clean --single-file -o "\$SNAP/report" \\
+                                || { rm -rf "\$SNAP/report"; echo "allure generate failed for ${mode}"; }
+                        fi
 
                         exit \$TEST_EXIT
     """
@@ -165,8 +187,8 @@ def sendBuildStatusEmail() {
     if (!isSecurityOnlyRun()) {
         rows += """
         <tr><td colspan="2"><b>CLI Tests</b></td></tr>
-        <tr><td><b>CLI Environment</b></td><td>${projectModes().contains('Existing Project') ? (params.CLI_EXISTING_STUDIO_URL?.trim() ?: env.STUDIO_URL) : env.STUDIO_URL}</td></tr>
-        <tr><td><b>CLI Result</b></td><td>${env.CLI_RESULT ?: 'N/A'}</td></tr>
+        <tr><td><b>CLI Environment</b></td><td>${reportEnvironments()}</td></tr>
+        <tr><td><b>CLI Result</b></td><td>${env.CLI_RESULT ?: 'NOT RUN — setup did not complete'}</td></tr>
         <tr><td><b>CLI Platform</b></td><td>${env.CLI_PLATFORM}</td></tr>
         <tr><td><b>CLI Branch</b></td><td>${env.EFFECTIVE_BRANCH}</td></tr>
         <tr><td><b>CLI Repo</b></td><td>${env.CLI_REPO_URL}</td></tr>
@@ -176,8 +198,8 @@ def sendBuildStatusEmail() {
     if (runsSecurityScan()) {
         rows += """
         <tr><td colspan="2"><b>Security Vulnerabilities</b></td></tr>
-        <tr><td><b>Security Environment</b></td><td>${projectModes().contains('Existing Project') ? (params.SECURITY_EXISTING_STUDIO_URL?.trim() ?: env.SECURITY_STUDIO_URL) : env.STUDIO_URL}</td></tr>
-        <tr><td><b>Security Result</b></td><td>${env.SECURITY_RESULT ?: 'N/A'}</td></tr>
+        <tr><td><b>Security Environment</b></td><td>${reportEnvironments(true)}</td></tr>
+        <tr><td><b>Security Result</b></td><td>${env.SECURITY_RESULT ?: 'NOT RUN — setup did not complete'}</td></tr>
         <tr><td><b>Security Branch</b></td><td>${env.SECURITY_EFFECTIVE_BRANCH}</td></tr>
         <tr><td><b>Security Repo</b></td><td>${env.SECURITY_CLI_REPO_URL}</td></tr>
         """
@@ -219,7 +241,7 @@ pipeline {
         choice(
             name: 'PROJECT_MODE',
             choices: ['Existing Project', 'New Project', 'Both'],
-            description: 'Existing uses Jenkins WM_CLI_* / SECURITY_WM_* project IDs. New creates one fresh NATIVE_MOBILE project (random name) used by both CLI tests and Security Vulnerabilities — WM_CLI_* login only. Both runs the selected target twice (existing project first, then the new one) — roughly double the runtime. App name / package / verification id / web preview XPath are resolved per mode inside the pipeline. Ignored by the 6 AM IST nightly, which always runs New Project.'
+            description: 'Existing uses suite-specific defaults/overrides. New creates one fresh project shared by CLI and Security using NEW_PROJECT_* overrides or WM_CLI_* defaults. Both runs Existing then New (same CLI variant required). AppChef Version is project-independent. Nightly timer always selects New Project.'
         )
         string(
             name: 'CLI_REPO_URL',
@@ -230,6 +252,21 @@ pipeline {
             name: 'PKG_MANAGER',
             choices: ['npm', 'yarn', 'both'],
             description: 'Package manager mode for tests'
+        )
+        string(
+            name: 'NEW_PROJECT_STUDIO_URL',
+            defaultValue: '',
+            description: 'New Project only: Studio environment for provisioning, CLI and security. Empty = WM_CLI_STUDIO_URL. Does not change global credentials or the Existing pass.'
+        )
+        string(
+            name: 'NEW_PROJECT_USERNAME',
+            defaultValue: '',
+            description: 'New Project only: shared Studio account for provisioning, CLI and security. Empty = WM_CLI_USERNAME.'
+        )
+        password(
+            name: 'NEW_PROJECT_PASSWORD',
+            defaultValue: '',
+            description: 'New Project only: shared Studio password, preserved exactly. Empty = WM_CLI_PASSWORD. Never included in reports.'
         )
         string(
             name: 'CLI_EXISTING_USERNAME',
@@ -255,6 +292,16 @@ pipeline {
             name: 'CLI_EXISTING_STUDIO_PROJECT_ID',
             defaultValue: '',
             description: 'CLI Existing Project only: proj-... jobs API ID. Empty = WM_CLI_STUDIO_PROJECT_ID. Must belong to the same CLI project.'
+        )
+        string(
+            name: 'CLI_EXISTING_WEB_PREVIEW_XPATH',
+            defaultValue: '',
+            description: 'CLI Existing Project only: XPath for a visible app-specific element. Empty keeps the default selector. Set this when the selected project uses a different screen.'
+        )
+        string(
+            name: 'CLI_EXISTING_APP_VERIFICATION_ID',
+            defaultValue: '',
+            description: 'CLI Existing Project only: native accessibility selector, e.g. ~mobile_navbar1_title. Empty keeps the default. Does not affect New Project.'
         )
         string(
             name: 'SECURITY_EXISTING_USERNAME',
@@ -293,6 +340,8 @@ pipeline {
     }
 
     options {
+        // Clean previous reports before checkout can fail and enter post actions.
+        skipDefaultCheckout(true)
         // Archived allure/security reports accumulate per build with no cap otherwise.
         buildDiscarder(logRotator(numToKeepStr: '15', artifactNumToKeepStr: '15'))
     }
@@ -328,7 +377,9 @@ pipeline {
 
         RN_BUILD_PROFILE = 'development'
         RN_BUILD_EMPTY_JOBS_POLL_LIMIT = '15'
-        BROWSERSTACK_VERIFY_SOFT_FAIL = 'true'
+        BROWSERSTACK_VERIFY_SOFT_FAIL = 'false'
+        // Do not reuse or delete a previous build's provisioned Studio project.
+        CI_PROJECT_ENV_FILE = "${WORKSPACE}/.ci-project-env-${BUILD_NUMBER}.sh"
 
         // 2x local defaults: BUILD 45→90 min, INSTALL 5→10 min
         BUILD_TIMEOUT   = '5400000'
@@ -360,10 +411,21 @@ pipeline {
         SECURITY_STUDIO_PROJECT_ID = credentials('SECURITY_WM_STUDIO_PROJECT_ID')
 
         // Jenkins exports build parameters automatically. Apply suite-specific overrides
-        // inside each Existing Project pass; never interpolate or trim passwords here.
+        // inside each concrete project-mode pass; never interpolate or trim passwords here.
     }
 
     stages {
+        stage('Initialize Reports') {
+            steps {
+                sh '''
+                    rm -rf allure-results allure-report cli-reports security-report security-reports security-reports-by-mode
+                '''
+                script {
+                    // Assigned only after cleanup succeeds; a failed cleanup must never publish old data.
+                    env.REPORT_RUN_ID = env.BUILD_TAG
+                }
+            }
+        }
         stage('Checkout') {
             steps {
                 checkout scm
@@ -384,8 +446,14 @@ pipeline {
             steps {
                 script {
                     def override = params.CLI_EXISTING_STUDIO_URL?.trim()
-                    def studioUrl = (override && projectModes()[0] == 'Existing Project') ? override : (env.STUDIO_URL ?: '')
-                    if (studioUrl.contains('platform.wavemaker.ai')) {
+                    def existingUrl = override ?: (env.STUDIO_URL ?: '')
+                    def newUrl = params.NEW_PROJECT_STUDIO_URL?.trim() ?: (env.STUDIO_URL ?: '')
+                    def isAi = { url -> url.toLowerCase().contains('platform.wavemaker.ai') }
+                    if (!isSecurityOnlyRun() && projectModes().size() > 1 && isAi(existingUrl) != isAi(newUrl)) {
+                        error('Both cannot mix classic and AI CLI environments in one build; run separate Existing Project and New Project builds.')
+                    }
+                    def studioUrl = projectModes()[0] == 'New Project' ? newUrl : existingUrl
+                    if (isAi(studioUrl)) {
                         env.CLI_PLATFORM = 'ai'
                         env.CLI_PKG_NAME = '@wavemaker-ai/wm-reactnative-cli'
                         env.CLI_BINARY = 'wm-reactnative-ai'
@@ -513,10 +581,9 @@ pipeline {
             steps {
                 sh '''
                     chmod +x scripts/source-ci-project-env.sh
-                    PROJECT_MODE="New Project" npx ts-node scripts/provision-studio-project.ts
-                    set -a
-                    . "${WORKSPACE}/.ci-project-env.sh"
-                    set +a
+                    export PROJECT_MODE="New Project"
+                    npx ts-node scripts/provision-studio-project.ts
+                    . scripts/source-ci-project-env.sh
                     echo "--- Provisioned project (prefixes only) ---"
                     echo "WM_PROJECT_ID prefix: $(echo "$WM_PROJECT_ID" | cut -c1-12)..."
                     echo "STUDIO_PROJECT_ID prefix: $(echo "$STUDIO_PROJECT_ID" | cut -c1-12)..."
@@ -540,7 +607,7 @@ pipeline {
 
         stage('CI Smoke Test') {
             when {
-                expression { !isSecurityOnlyRun() }
+                expression { !isSecurityOnlyRun() && params.RUN_TARGET != 'AppChef Version' }
             }
             steps {
                 script {
@@ -687,19 +754,28 @@ pipeline {
 
     post {
         always {
-            sh '''
-                if [ -d "allure-results" ] && [ "$(ls -A allure-results 2>/dev/null)" ]; then
-                    echo "--- Generating Allure report ---"
-                    npx allure generate allure-results --clean --single-file -o allure-report \
-                        || echo "allure generate skipped"
-                else
-                    echo "--- Skipping Allure report (no allure-results) ---"
-                fi
-            '''
-            archiveArtifacts artifacts: 'allure-report/**', allowEmptyArchive: true
-            archiveArtifacts artifacts: 'allure-results/**', allowEmptyArchive: true
-            archiveArtifacts artifacts: 'cli-reports/*/report/**', allowEmptyArchive: true
-            archiveArtifacts artifacts: 'security-report/**,security-reports/**,security-reports-by-mode/**', allowEmptyArchive: true
+            script {
+                if (env.BUILD_TAG && env.REPORT_RUN_ID == env.BUILD_TAG) {
+                    sh '''
+                        # Do not reuse HTML if a fresh generation fails.
+                        rm -rf allure-report
+                        set -- allure-results/*-result.json
+                        if [ -f "$1" ]; then
+                            echo "--- Generating current-build Allure report ---"
+                            npx allure generate allure-results --clean --single-file -o allure-report \
+                                || { rm -rf allure-report; echo "allure generate failed"; }
+                        else
+                            echo "--- Tests not run: no current-build Allure test results ---"
+                        fi
+                    '''
+                    archiveArtifacts artifacts: 'allure-report/**', allowEmptyArchive: true
+                    archiveArtifacts artifacts: 'allure-results/**', allowEmptyArchive: true
+                    archiveArtifacts artifacts: 'cli-reports/*/report/**', allowEmptyArchive: true
+                    archiveArtifacts artifacts: 'security-report/**,security-reports/**,security-reports-by-mode/**', allowEmptyArchive: true
+                } else {
+                    echo '--- Report initialization did not complete: skipping generation and archiving ---'
+                }
+            }
             echo "Run complete. Platform: ${env.CLI_PLATFORM}, Branch: ${env.EFFECTIVE_BRANCH}, Target: ${params.RUN_TARGET}, PM: ${params.PKG_MANAGER}"
             script {
                 sendBuildStatusEmail()

@@ -1,6 +1,7 @@
 import axios, { AxiosInstance } from 'axios';
 import { AuthService } from './AuthService';
 import { createLogger } from '../utils/Logger';
+import { applyNewProjectOverrides } from '../utils/new-project-env';
 import {
   deriveAppPackage,
   deriveRnProjectFolder,
@@ -60,19 +61,6 @@ function pickStudioProjectId(data: unknown): string | undefined {
   return values.find((v) => /^proj-[a-zA-Z0-9-]+$/i.test(v));
 }
 
-function pickPlatformVersion(data: unknown): string | undefined {
-  if (!data || typeof data !== 'object') return undefined;
-  const obj = data as Record<string, unknown>;
-  for (const key of ['platformVersion', 'defaultPlatformVersion', 'version']) {
-    const v = obj[key];
-    if (typeof v === 'string' && /^\d+\.\d+/.test(v)) return v;
-  }
-  for (const v of Object.values(obj)) {
-    const nested = pickPlatformVersion(v);
-    if (nested) return nested;
-  }
-  return undefined;
-}
 
 function pickFlowId(data: unknown): number | undefined {
   if (!data || typeof data !== 'object') return undefined;
@@ -89,11 +77,9 @@ function pickFlowId(data: unknown): number | undefined {
   return undefined;
 }
 
-function projectDefaults(baseUrl: string): Omit<CreateProjectPayload, 'name' | 'displayName'> {
-  const isAi = /platform\.wavemaker\.ai/i.test(baseUrl);
+function projectDefaults(): Omit<CreateProjectPayload, 'name' | 'displayName' | 'platformVersion'> {
   return {
     template: 'PRISM',
-    platformVersion: isAi ? '1.0.0' : '11.11.4',
     platformType: 'NATIVE_MOBILE',
     projectType: 'APPLICATION',
     projectShell: { name: 'Default Project', displayName: 'Default Project' },
@@ -106,10 +92,12 @@ export class StudioProjectService {
   private authCookieValue = '';
 
   constructor(baseUrl: string, authCookie: string) {
-    this.baseUrl = baseUrl.replace(/\/$/, '');
+    this.baseUrl = baseUrl.replace(/\/+$/, '');
     this.authCookieValue = extractAuthCookieValue(authCookie);
     this.http = axios.create({
       baseURL: `${this.baseUrl}/projects/services`,
+      timeout: 60_000,
+      maxRedirects: 0,
       headers: {
         Accept: 'application/json, text/plain, */*',
         'Content-Type': 'application/json',
@@ -118,11 +106,12 @@ export class StudioProjectService {
         Referer: `${this.baseUrl}/projects/`,
         'x-requested-with': 'XMLHttpRequest',
       },
-      validateStatus: (status) => status >= 200 && status < 500,
+      validateStatus: (status) => status >= 200 && status < 600,
     });
   }
 
   static async createNewProjectFromEnv(): Promise<CreateProjectResult> {
+    applyNewProjectOverrides();
     const baseUrl = (
       process.env.STUDIO_BASE_URL ||
       process.env.STUDIO_URL ||
@@ -149,6 +138,7 @@ export class StudioProjectService {
 
   /** Logs in with the same env creds as createNewProjectFromEnv and deletes one project. */
   static async deleteProjectFromEnv(studioProjectId: string): Promise<void> {
+    applyNewProjectOverrides();
     const baseUrl = (
       process.env.STUDIO_BASE_URL ||
       process.env.STUDIO_URL ||
@@ -176,7 +166,7 @@ export class StudioProjectService {
     const res = await this.http.delete(`/ednservices/rest/projects/${studioProjectId}`, {
       params: { deprecateArtifacts: false },
     });
-    if (res.status >= 400) {
+    if (res.status >= 300) {
       const body =
         typeof res.data === 'string' ? res.data : JSON.stringify(res.data).slice(0, 500);
       throw new Error(`deleteProject failed for ${studioProjectId} (HTTP ${res.status}): ${body}`);
@@ -204,20 +194,21 @@ export class StudioProjectService {
   }
 
   async createNativeMobileProject(projectName: string): Promise<CreateProjectResult> {
-    let platformVersion = projectDefaults(this.baseUrl).platformVersion;
+    const about = await this.http.get(`${this.baseUrl}/studio/services/studio/about`);
+    const platformVersion = about.data?.product?.platformVersion;
+    if (about.status !== 200 || typeof platformVersion !== 'string' ||
+        !/^\d+\.\d+\.\d+(?:[-+][a-zA-Z0-9.-]+)?$/.test(platformVersion)) {
+      throw new Error(`Cannot discover Studio platform version (HTTP ${about.status}); project was not created`);
+    }
 
     try {
-      const flowId = await this.runOnboardingPreflight();
-      const details = await this.http.get('/onboardingFlow/journeyDetailsById', {
-        params: { flowId },
-      });
-      platformVersion = pickPlatformVersion(details.data) || platformVersion;
+      await this.runOnboardingPreflight();
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
       log.warn(`Onboarding preflight skipped or failed: ${message}`);
     }
 
-    const defaults = projectDefaults(this.baseUrl);
+    const defaults = projectDefaults();
     const payload: CreateProjectPayload = {
       name: projectName,
       displayName: projectName,
@@ -237,7 +228,7 @@ export class StudioProjectService {
       payload
     );
 
-    if (createRes.status >= 400) {
+    if (createRes.status >= 300) {
       const body =
         typeof createRes.data === 'string'
           ? createRes.data
@@ -295,9 +286,6 @@ export class StudioProjectService {
       try {
         const match = await this.findProjectInListing(projectName, knownWmpId);
         if (match.wmProjectId && match.studioProjectId) return match;
-        if (match.wmProjectId && knownWmpId && match.wmProjectId === knownWmpId) {
-          return match;
-        }
       } catch (error: unknown) {
         lastError = error instanceof Error ? error : new Error(String(error));
       }
@@ -312,21 +300,20 @@ export class StudioProjectService {
     projectName: string,
     knownWmpId?: string
   ): Promise<{ wmProjectId?: string; studioProjectId?: string }> {
-    const listEndpoints = [
-      '/manageProjectsListing/getRecentProjects',
-      '/manageProjectsListing/getProjectsList',
-      '/manageProjectsListing/getAllProjects',
-    ];
-
-    for (const endpoint of listEndpoints) {
-      try {
-        const res = await this.http.get(endpoint);
-        if (res.status >= 400) continue;
-        const match = this.matchProjectInTree(res.data, projectName, knownWmpId);
-        if (match.wmProjectId) return match;
-      } catch {
-        // try next endpoint
+    for (let page = 0; page < 100; page++) {
+      const res = await this.http.get('/ednservices/rest/projects', {
+        params: { size: 100, page },
+      });
+      if (res.status !== 200) {
+        throw new Error(`Projects listing failed (HTTP ${res.status})`);
       }
+      const match = this.matchProjectInTree(res.data, projectName, knownWmpId);
+      if (match.wmProjectId && match.studioProjectId) return match;
+      const records = this.flattenProjectRecords(res.data);
+      const totalPages = res.data?.totalPages;
+      if (res.data?.last === true || records.length === 0 ||
+          (typeof totalPages === 'number' && page + 1 >= totalPages) ||
+          (totalPages === undefined && records.length < 100)) break;
     }
 
     return {};
@@ -347,17 +334,11 @@ export class StudioProjectService {
       );
       const studioId = String(item.id || item.studioProjectId || item.projectStudioId || '');
 
-      const wmpMatch =
-        (knownWmpId && wmId === knownWmpId) ||
-        (name && name === normalizedName) ||
-        pickWmpProjectId(item);
-
-      if (!wmpMatch && !pickWmpProjectId(item)) continue;
 
       const wmProjectId = /^WMPRJ/i.test(wmId) ? wmId : pickWmpProjectId(item);
       const studioProjectId = /^proj-/i.test(studioId) ? studioId : pickStudioProjectId(item);
-
-      if (wmProjectId) {
+      const matches = knownWmpId ? wmProjectId === knownWmpId : name === normalizedName;
+      if (matches && wmProjectId) {
         return { wmProjectId, studioProjectId };
       }
     }

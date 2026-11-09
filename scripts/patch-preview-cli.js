@@ -27,6 +27,65 @@ function patchPreviewCli(repoPath) {
       "// wm-preview-http: bound remote polling and metadata requests.\nconst axios = require('axios').create({ timeout: 60000 });",
       `${name} HTTP client`);
     if (name === 'web-preview-launcher.js') {
+      const runtimeBoundaries = [
+        '    const nodeModulesDir = `${expoDir}/node_modules/${global.WM_REPO_SCOPE}/app-rn-runtime`;',
+        '    const nodeModulesDir = `${expoDir}/node_modules/@wavemaker-ai/app-rn-runtime`;',
+      ].filter(line => source.includes(line));
+      const installErrors = ['error', 'fail'].map(method =>
+        `        taskLogger.${method}(e+' Encountered an error while installing dependencies.');`
+      ).filter(line => source.includes(line));
+      if (runtimeBoundaries.length !== 1 || installErrors.length !== 1) {
+        throw new Error('Unsupported preview CLI source: installation boundary/error handler; refusing a partial patch');
+      }
+      source = replaceOnce(source,
+        '    if (fs.existsSync(`${expoDir}/node_modules/expo`)) {\n        return;\n    }',
+        [
+          '    // wm-preview-cached-install: compatibility steps also run after a failed prior patch.',
+          '    process.env.BROWSER = "none"; // Supported by modern Expo; browser assertions use WebDriver.',
+          '    if (!fs.existsSync(`${expoDir}/node_modules/expo`)) {',
+        ].join('\n'),
+        'cached Expo dependency installation');
+      source = replaceOnce(source,
+        runtimeBoundaries[0],
+        [
+          '    } // wm-preview-cached-install',
+          runtimeBoundaries[0],
+        ].join('\n'),
+        'cached Expo installation boundary');
+      source = replaceOnce(source,
+        "    if(expoVersion != '52.0.17' && expoVersion != '54.0.12'){",
+        [
+          '    // wm-preview-camera: newer generated web apps do not declare expo-camera.',
+          '    const expoManifest = JSON.parse(fs.readFileSync(path.join(expoDir, "package.json"), "utf8"));',
+          '    const usesExpoCamera = Boolean((expoManifest.dependencies || {})["expo-camera"] || (expoManifest.devDependencies || {})["expo-camera"]);',
+          "    if(usesExpoCamera && expoVersion != '52.0.17' && expoVersion != '54.0.12'){",
+        ].join('\n'),
+        'optional Expo camera dependency');
+      source = replaceOnce(source,
+        '        readAndReplaceFileContent(`${expoDir}/node_modules/expo-camera/build/useWebQRScanner.js`, (c) => {',
+        '        await readAndReplaceFileContent(`${expoDir}/node_modules/expo-camera/build/useWebQRScanner.js`, (c) => {',
+        'await camera compatibility patch');
+      source = replaceOnce(source,
+        installErrors[0],
+        installErrors[0] + '\n        throw e; // wm-preview-install-error: never start with incomplete compatibility patches.',
+        'propagate Expo installation failure');
+      source = replaceOnce(source,
+        "        content = content.replace('getEnvPrelude(str)', '//getEnvPrelude(str)');",
+        [
+          '        // wm-preview-serializer: cached retries must not duplicate the injected prelude.',
+          "        if (content.includes('firstModule.output[0].data.code = firstModule.output[0].data.code + str;')) return content;",
+          "        content = content.replace('getEnvPrelude(str)', '//getEnvPrelude(str)');",
+        ].join('\n'),
+        'idempotent Metro serializer patch');
+      source = replaceOnce(source,
+        '        readAndReplaceFileContent(`${expoDir}/node_modules/@expo/cli/build/src/utils/open.js`, (c) => c.replace(\'if (process.platform !== "win32")\', \'return;\\n\\n if (process.platform !== "win32")\'));',
+        [
+          '        // wm-preview-expo-layout: npm may nest @expo/cli under expo.',
+          "        const expoPackageDir = path.dirname(require.resolve('expo/package.json', { paths: [expoDir] }));",
+          "        const expoCliPackageDir = path.dirname(require.resolve('@expo/cli/package.json', { paths: [expoPackageDir] }));",
+          '        await readAndReplaceFileContent(path.join(expoCliPackageDir, \'build/src/utils/open.js\'), (c) => c.replace(\'if (process.platform !== "win32")\', \'return;\\n\\n if (process.platform !== "win32")\'));',
+        ].join('\n'),
+        'Expo CLI dependency layout');
       source = replaceOnce(source,
         '        let isExpoStarted = false;',
         [
@@ -42,6 +101,26 @@ function patchPreviewCli(repoPath) {
         ].join('\n'),
         'initial Expo startup');
       // The proxy must answer rather than leave the client hanging if Metro is unavailable.
+      source = replaceOnce(source,
+        '                    streamToString(request(tUrl)).then(content => {',
+        [
+          '                    // wm-preview-bundle-socket: do not reuse Axios sockets with retained timeout listeners.',
+          '                    streamToString(request(tUrl, { pool: false, timeout: 120000 })).then(content => {',
+        ].join('\n'),
+        'isolated bounded Metro bundle request');
+      source = replaceOnce(source,
+        '                        res.write(content);\n                        res.end();\n                    });',
+        [
+          '                        res.write(content);',
+          '                        res.end();',
+          '                    }).catch(error => {',
+          '                        // wm-preview-bundle-error: retain a failed HTTP response, not an unhandled rejection.',
+          "                        console.error('Expo bundle upstream failed:', error.code || error.name);",
+          "                        if (!res.headersSent) res.writeHead(502, { 'Content-Type': 'text/plain' });",
+          "                        res.end('Expo bundle upstream failed');",
+          '                    });',
+        ].join('\n'),
+        'bundle proxy error response');
       source = replaceOnce(source,
         ".replace('/index.bundle?', `./index.bundle?minify=true&`));\n                });",
         [

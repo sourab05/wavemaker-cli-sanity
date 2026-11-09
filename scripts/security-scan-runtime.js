@@ -78,7 +78,11 @@ async function runScan(tool, args, extractRNZip, run = spawnSync) {
     const version = execute(command, ['--version']);
     if (version.error || version.status !== 0) throw new Error(`${command} is unavailable`);
     if (tool === 'snyk' && !env.SNYK_TOKEN) throw new Error('SNYK_TOKEN is required');
-    const scan = execute(command, tool === 'audit' ? ['audit', '--json'] : ['test', '--json']);
+    // The WaveMaker Nexus registry serves private packages but has no advisory API.
+    // Override only audit; installation and private scope resolution stay on WaveMaker.
+    const scan = execute(command, tool === 'audit'
+      ? ['audit', '--json', '--registry=https://registry.npmjs.org/']
+      : ['test', '--json']);
     const normalized = normalizeResult(tool, scan.stdout || '', scan.status);
     const envelope = {
       format: 'wm-security-v1', tool, status: normalized.status, exitCode: scan.status,

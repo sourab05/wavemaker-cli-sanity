@@ -25,6 +25,20 @@ export interface RunCommandOptions {
 }
 
 export type RunCommandResult = { stdout: string; stderr: string } | string;
+export function createTokenPromptHandler(token: string, onSend?: () => void) {
+  let pending = '';
+  let sent = false;
+  return (text: string, child: Pick<ChildProcess, 'stdin'>): void => {
+    if (sent) return;
+    pending = (pending + text).replace(/\x1B\[[0-9;]*[A-Za-z]/g, '').slice(-2048);
+    if (/(?:^|[\r\n])\s*(?:prompt:\s*)?token\s*:/i.test(pending) &&
+        child.stdin?.writable && !child.stdin.writableEnded) {
+      sent = true;
+      onSend?.();
+      child.stdin.write(`${token}\n`);
+    }
+  };
+}
 
 export function runCommand(
   command: string,

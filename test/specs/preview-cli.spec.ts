@@ -11,7 +11,7 @@ import { EmulatorService } from '../../src/services/EmulatorService';
 import { DriverFactory } from '../../src/helpers/DriverFactory';
 import { ExpoGoAppPage } from '../../src/pages/ExpoGoApp.page';
 import { WebPreviewPage } from '../../src/pages/WebPreview.page';
-import { runCommand } from '../../src/utils/run-command';
+import { runCommand, createTokenPromptHandler } from '../../src/utils/run-command';
 import { killProcess, killPort } from '../../src/utils/process-utils';
 import { createLogger } from '../../src/utils/Logger';
 import { getPackageManagers, PackageManagerCommands } from '../../src/utils/package-manager';
@@ -119,14 +119,8 @@ packageManagers.forEach((pm) => {
         generatedProjectPath = await runCommand(syncCmd, {
           timeout: config.syncTimeout,
           resolveOnRegex: pathRegex,
-          onData: (data, child) => {
-            const cleanText = data.replace(/\x1B\[[0-9;]*[A-Za-z]/g, '').trim();
-            if (/\btoken\b\s*:?\s*$/i.test(cleanText)) {
-              log.info('Detected token prompt, sending auth token...');
-              child.stdin!.write(`${cookieValue}\n`);
-              child.stdin!.end();
-            }
-          },
+          onData: createTokenPromptHandler(cookieValue, () =>
+            log.info('Detected token prompt, sending auth token...')),
         }) as string;
 
         if (!fs.existsSync(generatedProjectPath)) {

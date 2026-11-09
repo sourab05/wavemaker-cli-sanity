@@ -220,6 +220,10 @@ describe('CLI and security reliability (offline)', () => {
     assert.equal(process.exitCode, 0);
     assert(calls.some(args => args[0] === 'install'));
     assert(calls.some(args => args[0] === 'ci'));
+    assert.deepEqual(calls.find(args => args[0] === 'audit'),
+      ['audit', '--json', '--registry=https://registry.npmjs.org/']);
+    assert(!calls.filter(args => ['ci', 'install'].includes(args[0]))
+      .some(args => args.some(arg => arg.includes('registry.npmjs.org'))));
     assert(!calls.some(args => ['update', 'config', 'cache', 'auth'].includes(args[0])));
     const audit = JSON.parse(fs.readFileSync(path.join(tmp, 'extract-1/audit-report.txt'), 'utf8'));
     const snyk = JSON.parse(fs.readFileSync(path.join(tmp, 'extract-2/snyk-report.txt'), 'utf8'));

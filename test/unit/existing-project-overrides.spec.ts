@@ -16,6 +16,8 @@ for (const [field, aliases] of Object.entries(fields)) {
   defaults[`SECURITY_${field}`] = `security-default-${field}`;
 }
 const helper = path.resolve('scripts/apply-existing-project-overrides.sh');
+defaults.WEB_PREVIEW_XPATH = "//div[@aria-label='default-marker']";
+defaults.APP_VERIFICATION_ID = '~default-marker';
 
 function apply(overrides: Record<string, string> = {}, mode = 'Existing Project') {
   // Use a synthetic environment only, never the developer's credentials.
@@ -81,6 +83,18 @@ describe('Existing Project account isolation', () => {
     assert.equal(result.WM_PASSWORD, cli);
     assert.equal(result.WMO_PASS, cli);
     assert.equal(result.SECURITY_PASSWORD, security);
+  });
+
+  it('applies project-specific UI selectors only to the Existing pass without shell expansion', () => {
+    const xpath = "//*[@aria-label='mobile_navbar1_title' and normalize-space()='Title $(false)']";
+    const overrides = { CLI_EXISTING_WEB_PREVIEW_XPATH: xpath, CLI_EXISTING_APP_VERIFICATION_ID: '~mobile_navbar1_title' };
+    const result = apply(overrides);
+    assert.equal(result.WEB_PREVIEW_XPATH, xpath);
+    assert.equal(result.APP_VERIFICATION_ID, '~mobile_navbar1_title');
+    assert.deepEqual(apply(overrides, 'New Project'), defaults);
+    assert.deepEqual(apply({ CLI_EXISTING_WEB_PREVIEW_XPATH: '', CLI_EXISTING_APP_VERIFICATION_ID: '' }), defaults);
+    const pipeline = fs.readFileSync(path.resolve('Jenkinsfile'), 'utf8');
+    for (const key of Object.keys(overrides)) assert(pipeline.includes(`name: '${key}'`));
   });
 
   it('does not reuse obsolete shared inputs for either suite', () => {
