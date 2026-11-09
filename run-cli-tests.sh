@@ -118,6 +118,7 @@ fi
 # Checkout the specified branch
 git checkout "$BRANCH_NAME"
 git reset --hard "origin/$BRANCH_NAME"
+node "$AUTOMATION_REPO_PATH/scripts/patch-preview-cli.js" "$CLI_REPO_PATH"
 
 # --- Install & Link CLI (package-manager aware) ---
 #

@@ -461,6 +461,7 @@ pipeline {
 
                     cd "\$CLI_REPO_PATH"
                     git reset --hard "origin/\${EFFECTIVE_BRANCH}"
+                    node "\${WORKSPACE}/scripts/patch-preview-cli.js" "\$CLI_REPO_PATH"
 
                     echo "--- Configuring npm registry for CLI repo ---"
                     "\${WORKSPACE}/scripts/configure-npm-registry.sh" "\$CLI_REPO_PATH"
@@ -491,15 +492,16 @@ pipeline {
                     echo "--- Configuring npm registry for automation project ---"
                     ./scripts/configure-npm-registry.sh "\${WORKSPACE}"
 
+                    echo "--- Installing automation dependencies ---"
+                    npm install
+
                     if [ "${params.RUN_TARGET}" != "Security Vulnerabilities" ]; then
                         echo "--- Linking CLI in automation project (${env.CLI_PKG_NAME}) ---"
-                        npm link ${env.CLI_PKG_NAME}
+                        npm link "\${WORKSPACE}/wm-reactnative-cli" --save=false
+                        node -e "const fs = require('fs'); const path = require('path'); const actual = fs.realpathSync('node_modules/${env.CLI_PKG_NAME}'); const expected = fs.realpathSync(path.join(process.env.WORKSPACE, 'wm-reactnative-cli')); if (actual !== expected) throw new Error('CLI link does not resolve to tested checkout'); console.log('Verified CLI checkout link');"
                     else
                         echo "--- Skipping wavemaker CLI link (security-only run) ---"
                     fi
-
-                    echo "--- Installing automation dependencies ---"
-                    npm install
                 """
             }
         }

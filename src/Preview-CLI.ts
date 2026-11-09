@@ -8,7 +8,7 @@ import { remote, Browser } from 'webdriverio';
 import dotenv from 'dotenv';
 import { getPreviewCLIConfig, getPreviewUrl } from './config';
 import { runCommand } from './utils/run-command';
-import { startWebPreview } from './utils/web-preview';
+import { startWebPreview, webPreviewTestTimeout } from './utils/web-preview';
 import { ensureNpmRegistry } from './utils/npm-registry';
 import { getCliVariant } from './utils/cli-variant';
 import { getAppVerificationSelectors, getWebPreviewXPath } from './utils/app-verification';
@@ -24,6 +24,12 @@ describe('WM CLI Sync Command and RUN Web Preview Command', function () {
   let previewUrl = '';
   let generatedProjectPath = '';
   let config: ReturnType<typeof getPreviewCLIConfig>;
+  let previewController: AbortController | undefined;
+
+  afterEach(function () {
+    previewController?.abort();
+    previewController = undefined;
+  });
 
   before(async function () {
     config = getPreviewCLIConfig();
@@ -165,9 +171,11 @@ describe('WM CLI Sync Command and RUN Web Preview Command', function () {
 
   for (const esbuild of [false, true]) {
     it(`should run ${esbuild ? 'Esbuild' : 'Expo'} web-preview and verify the local app`, async function () {
+      this.timeout(webPreviewTestTimeout(config.syncTimeout));
+      previewController = new AbortController();
       const cookieValue = authCookie.split('=')[1].trim();
       const runCmd = `npx ${cliVariant.packageName} run web-preview "${previewUrl}"${esbuild ? ' --esbuild' : ''}`;
-      const preview = await startWebPreview(runCmd, cookieValue, config.syncTimeout);
+      const preview = await startWebPreview(runCmd, cookieValue, config.syncTimeout, previewController.signal);
       let browser: Browser | undefined;
       try {
         browser = await remote({ logLevel: 'error', capabilities: { browserName: 'chrome' } });

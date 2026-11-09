@@ -17,7 +17,7 @@ import { createLogger } from '../../src/utils/Logger';
 import { getPackageManagers, PackageManagerCommands } from '../../src/utils/package-manager';
 import { getCliVariant } from '../../src/utils/cli-variant';
 import { ensureNpmRegistry } from '../../src/utils/npm-registry';
-import { startWebPreview } from '../../src/utils/web-preview';
+import { startWebPreview, webPreviewTestTimeout } from '../../src/utils/web-preview';
 
 dotenv.config();
 
@@ -40,6 +40,7 @@ packageManagers.forEach((pm) => {
     let metroProcess: ChildProcess | undefined;
     let appiumService: AppiumService;
     let emulatorService: EmulatorService;
+    let previewController: AbortController | undefined;
 
     let setupDone = false;
     let setupError: Error | null = null;
@@ -91,9 +92,18 @@ packageManagers.forEach((pm) => {
       }
     }
 
-    it('should run sync command and capture the Expo project path', async function () {
-      this.timeout(20 * 60 * 1000);
+    before(async function () {
+      this.timeout(10 * 60 * 1000);
       await ensureSetup();
+    });
+    afterEach(function () {
+      // Mocha timeouts do not cancel promises; stop this test's process before the next test.
+      previewController?.abort();
+      previewController = undefined;
+    });
+
+    it('should run sync command and capture the Expo project path', async function () {
+      this.timeout(config.syncTimeout + 60000);
 
       const projectRootFolder = path.join(config.baseFolder, 'CliApp');
       if (fs.existsSync(projectRootFolder)) {
@@ -212,15 +222,15 @@ packageManagers.forEach((pm) => {
     });
 
     it('should run Expo web-preview and generate the Expo Web App', async function () {
-      this.timeout(10 * 60 * 1000);
-      await ensureSetup();
+      this.timeout(webPreviewTestTimeout(config.syncTimeout));
+      previewController = new AbortController();
       let browser: Browser | undefined;
       let preview: Awaited<ReturnType<typeof startWebPreview>> | undefined;
 
       try {
         const webPreviewCmd = cmd.cli(`run web-preview "${previewUrl}"`);
         log.step(1, 2, `Running CLI web-preview command: ${webPreviewCmd}`);
-        preview = await startWebPreview(webPreviewCmd, cookieValue, config.syncTimeout);
+        preview = await startWebPreview(webPreviewCmd, cookieValue, config.syncTimeout, previewController.signal);
 
         log.step(2, 2, 'Verifying web preview in browser...');
         browser = await DriverFactory.createBrowserSession();
@@ -239,15 +249,15 @@ packageManagers.forEach((pm) => {
     });
 
     it('should run Esbuild web-preview and generate the Esbuild Web App', async function () {
-      this.timeout(10 * 60 * 1000);
-      await ensureSetup();
+      this.timeout(webPreviewTestTimeout(config.syncTimeout));
+      previewController = new AbortController();
       let preview: Awaited<ReturnType<typeof startWebPreview>> | undefined;
       let browser: Browser | undefined;
 
       try {
         const esbuildCmd = cmd.cli(`run web-preview "${previewUrl}" --esbuild`);
         log.info(`Running CLI web-preview with --esbuild flag: ${esbuildCmd}`);
-        preview = await startWebPreview(esbuildCmd, cookieValue, config.syncTimeout);
+        preview = await startWebPreview(esbuildCmd, cookieValue, config.syncTimeout, previewController.signal);
         browser = await DriverFactory.createBrowserSession();
         await new WebPreviewPage(browser).openAndVerify(preview.url);
 

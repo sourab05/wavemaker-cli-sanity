@@ -40,8 +40,11 @@ export class DriverFactory {
     try {
       const client = await remote({
         logLevel: 'error',
+        connectionRetryTimeout: 60000,
+        connectionRetryCount: 0,
         capabilities,
       });
+      await client.setTimeout({ pageLoad: 60000, script: 30000 });
       log.success('Browser session created');
       return client;
     } catch (error: any) {

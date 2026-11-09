@@ -19,6 +19,7 @@ export interface RunCommandOptions {
   failureRegex?: RegExp;
   onData?: (text: string, child: ChildProcess) => void;
   keepAlive?: boolean;
+  signal?: AbortSignal;
   expectedFile?: string;
   expectedFilePollInterval?: number;
 }
@@ -38,6 +39,7 @@ export function runCommand(
     failureRegex,
     onData,
     keepAlive = false,
+    signal,
     expectedFile,
     expectedFilePollInterval = 5000,
   } = options;
@@ -73,6 +75,7 @@ export function runCommand(
     const cleanup = () => {
       clearTimeout(timeoutId);
       if (intervalId) clearInterval(intervalId);
+      signal?.removeEventListener('abort', onAbort);
       // Keep draining persistent server output after readiness.
       if (!keepAlive || !settled) {
         child.stdout?.removeAllListeners();
@@ -87,6 +90,7 @@ export function runCommand(
       if (err && keepAlive && child.pid) killProcessTree(child.pid);
       err ? reject(err) : resolve(result!);
     };
+    const onAbort = () => settle(new Error('Command cancelled'));
 
     const dataHandler = (textChunk: Buffer, isStderr = false) => {
       const text = textChunk.toString();
@@ -196,6 +200,8 @@ export function runCommand(
         }
       }, expectedFilePollInterval);
     }
+    signal?.addEventListener('abort', onAbort, { once: true });
+    if (signal?.aborted) onAbort();
   });
 
   return promise.finally(() => {

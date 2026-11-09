@@ -50,6 +50,7 @@ export class AuthService {
 
     try {
       const response = await axios.post(loginUrl, payload, {
+        timeout: 60000,
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         maxRedirects: 0,
         validateStatus: (status) => status === 302,
@@ -86,6 +87,7 @@ export class AuthService {
         }
 
         const response = await axios.post(previewApiUrl, {}, {
+          timeout: 60000,
           headers: {
             Accept: 'application/json',
             'Content-Type': 'application/json',
