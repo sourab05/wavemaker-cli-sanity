@@ -40,6 +40,7 @@ packageManagers.forEach((pm) => {
     let config: ReturnType<typeof getAppConfig>;
     let emulatorService: EmulatorService;
     let appiumService: AppiumService;
+    let prepareNativeBackend: (() => Promise<void>) | undefined;
 
     let setupDone = false;
     let setupError: Error | null = null;
@@ -84,6 +85,7 @@ packageManagers.forEach((pm) => {
           const outputBaseDir = path.join(path.dirname(config.projectPath), '.studio-download');
           const downloadedProjectPath = await rnManager.prepareProject(outputBaseDir, profileName);
           config.projectPath = downloadedProjectPath;
+          prepareNativeBackend = () => rnManager.refreshBackendForVerification(downloadedProjectPath);
           log.info(`Using Studio RN project at: ${config.projectPath}`);
           syncAppConfigFromProject(config.projectPath, config, log);
         } else {
@@ -224,6 +226,7 @@ packageManagers.forEach((pm) => {
 
       try {
         if (isRunLocal) {
+          await prepareNativeBackend?.();
           log.step(1, 3, 'Waiting for device to be ready and installing APK...');
           try {
             execSync('adb wait-for-device shell "while [[ -z $(getprop sys.boot_completed) ]]; do sleep 1; done"', {
@@ -266,7 +269,7 @@ packageManagers.forEach((pm) => {
 
           log.success('Android app verified on emulator');
         } else {
-          await verifyAndroidOnBrowserStack(config, apkPath, log);
+          await verifyAndroidOnBrowserStack(config, apkPath, log, prepareNativeBackend);
         }
       } catch (error: any) {
         const target = isRunLocal ? 'emulator' : 'BrowserStack';
@@ -341,7 +344,7 @@ packageManagers.forEach((pm) => {
         log.success(`IPA built: ${config.iosOutputFile}`);
 
         if (shouldVerifyOnBrowserStack()) {
-          await verifyOnBrowserStack(config, log);
+          await verifyOnBrowserStack(config, log, prepareNativeBackend);
         } else if (!isRunLocal) {
           log.warn('Skipping BrowserStack iOS verification (SKIP_BROWSERSTACK_VERIFY or missing creds)');
         }
@@ -476,7 +479,8 @@ function logCliBuildLogs(artifactsDir: string, log: ReturnType<typeof createLogg
 async function verifyAndroidOnBrowserStack(
   config: ReturnType<typeof getAppConfig>,
   apkPath: string,
-  log: ReturnType<typeof createLogger>
+  log: ReturnType<typeof createLogger>,
+  prepareNativeBackend?: () => Promise<void>
 ): Promise<void> {
   const username = process.env.BROWSERSTACK_USERNAME;
   const accessKey = process.env.BROWSERSTACK_ACCESS_KEY;
@@ -511,6 +515,7 @@ async function verifyAndroidOnBrowserStack(
   let client: Browser | undefined;
   try {
     log.info('Verifying Android app on BrowserStack...');
+    await prepareNativeBackend?.();
     client = await DriverFactory.createBrowserStackSession(capabilities, bstackOptions, credentials);
 
     const nativeApp = new NativeAppPage(client, config.appVerificationId);
@@ -525,7 +530,11 @@ async function verifyAndroidOnBrowserStack(
   }
 }
 
-async function verifyOnBrowserStack(config: ReturnType<typeof getAppConfig>, log: ReturnType<typeof createLogger>): Promise<void> {
+async function verifyOnBrowserStack(
+  config: ReturnType<typeof getAppConfig>,
+  log: ReturnType<typeof createLogger>,
+  prepareNativeBackend?: () => Promise<void>
+): Promise<void> {
   const configJsonPath = path.resolve(__dirname, '../../config/config.json');
   const projectName = process.env.PROJECT_NAME || 'default_project';
 
@@ -569,6 +578,7 @@ async function verifyOnBrowserStack(config: ReturnType<typeof getAppConfig>, log
   let client: Browser | undefined;
   try {
     log.info('Verifying iOS app on BrowserStack...');
+    await prepareNativeBackend?.();
     client = await DriverFactory.createBrowserStackSession(capabilities, bstackOptions, {
       username,
       accessKey,

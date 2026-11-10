@@ -2,6 +2,7 @@ import axios from 'axios';
 import * as fs from 'fs';
 import * as path from 'path';
 import { AuthService } from './AuthService';
+import { ensureNativeBackendReady } from './NativeBackendService';
 import { extractZip } from '../utils/zip-utils';
 import { createLogger } from '../utils/Logger';
 import { getSecurityStudioConfig } from '../config/security-project';
@@ -248,6 +249,12 @@ export class RnProjectManager {
     const authService = new AuthService(this.baseUrl);
     this.authCookie = await authService.login(this.config.username, this.config.password);
     return this.authCookie;
+  }
+  async refreshBackendForVerification(projectPath: string): Promise<void> {
+    await ensureNativeBackendReady(projectPath, async () => {
+      const cookie = await this.login();
+      return new AuthService(this.baseUrl).getPreviewUrl(this.config.projectId, cookie);
+    });
   }
 
   private getCookieValue(): string {
