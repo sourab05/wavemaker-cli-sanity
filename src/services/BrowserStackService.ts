@@ -5,6 +5,12 @@ import { createLogger } from '../utils/Logger';
 const log = createLogger('BrowserStackService');
 
 const UPLOAD_URL = 'https://api-cloud.browserstack.com/app-automate/upload';
+export function browserStackAndroidDevice(env: NodeJS.ProcessEnv = process.env) {
+  return {
+    deviceName: env.BS_ANDROID_DEVICE_NAME?.trim() || 'Google Pixel 8',
+    platformVersion: env.BS_ANDROID_PLATFORM_VERSION?.trim() || '14.0',
+  };
+}
 
 export interface BrowserStackCredentials {
   username: string;

@@ -15,7 +15,7 @@ import { getCliVariant } from '../../src/utils/cli-variant';
 import { EmulatorService } from '../../src/services/EmulatorService';
 import { AppiumService } from '../../src/services/AppiumService';
 import { RnProjectManager, shouldDownloadRnProjectFromStudio } from '../../src/services/RnProjectManager';
-import { resolveBrowserStackAppUrl } from '../../src/services/BrowserStackService';
+import { resolveBrowserStackAppUrl, browserStackAndroidDevice } from '../../src/services/BrowserStackService';
 import { ensureNpmRegistry } from '../../src/utils/npm-registry';
 
 dotenv.config();
@@ -485,8 +485,7 @@ async function verifyAndroidOnBrowserStack(
   }
 
   const projectName = process.env.PROJECT_NAME || 'default_project';
-  const androidDeviceName = process.env.BS_ANDROID_DEVICE_NAME || 'Google Pixel 8';
-  const androidPlatformVersion = (process.env.BS_ANDROID_PLATFORM_VERSION || '14').trim();
+  const { deviceName: androidDeviceName, platformVersion: androidPlatformVersion } = browserStackAndroidDevice();
 
   const credentials = { username, accessKey };
 

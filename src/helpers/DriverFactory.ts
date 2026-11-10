@@ -5,6 +5,17 @@ import { AppiumCapabilities, BrowserStackOptions } from '../types';
 import { createLogger } from '../utils/Logger';
 
 const log = createLogger('DriverFactory');
+export function previewBrowserCapabilities(browserName = 'chrome', headless = false): Record<string, any> {
+  // Navigation must not consume the transport deadline while Metro compiles.
+  // WebPreviewPage still requires the app-specific element to become visible.
+  const capabilities: Record<string, any> = { browserName, pageLoadStrategy: 'none' };
+  if (headless && browserName === 'chrome') {
+    capabilities['goog:chromeOptions'] = {
+      args: ['--headless=new', '--no-sandbox', '--disable-gpu', '--window-size=1920,1080'],
+    };
+  }
+  return capabilities;
+}
 
 export class DriverFactory {
   private static screenshotDir = path.resolve(__dirname, '..', '..', 'allure-results');
@@ -30,12 +41,7 @@ export class DriverFactory {
     const isHeadless = process.env.HEADLESS === 'true';
     log.info(`Creating browser session (${browserName}, headless: ${isHeadless})...`);
 
-    const capabilities: Record<string, any> = { browserName };
-    if (isHeadless && browserName === 'chrome') {
-      capabilities['goog:chromeOptions'] = {
-        args: ['--headless=new', '--no-sandbox', '--disable-gpu', '--window-size=1920,1080'],
-      };
-    }
+    const capabilities = previewBrowserCapabilities(browserName, isHeadless);
 
     try {
       const client = await remote({
