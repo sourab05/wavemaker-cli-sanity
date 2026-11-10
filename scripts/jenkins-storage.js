@@ -11,6 +11,12 @@ const WORKSPACE_OUTPUTS = [
   'node_modules', 'wm-reactnative-cli', 'wm-reactnative-cli-security',
 ];
 const MARKER = '.jenkins-storage-owner.json';
+// Chromium appends ~45 bytes for its singleton socket; Linux sun_path is 108 bytes.
+function assertSocketSafeTemp(dir) {
+  if (Buffer.byteLength(dir, 'utf8') > 60) {
+    throw new Error('Jenkins temporary path exceeds 60 bytes; use a shorter canonical JENKINS_HOME mount');
+  }
+}
 
 function exists(file) {
   try { return fs.lstatSync(file); } catch (error) {
@@ -84,8 +90,14 @@ function layout(env) {
   }
   const jobIdentity = { version: 1, job: env.JOB_NAME, jenkinsHome: home };
   const identity = { ...jobIdentity, build: env.BUILD_NUMBER, tag: env.BUILD_TAG, workspace };
+  const tempParent = checkedPath(home, 'ci-tmp');
+  const tempRoot = checkedPath(home, `ci-tmp/${hash.slice(0, 16)}`);
+  const temp = checkedPath(tempRoot, env.BUILD_NUMBER);
+  if (workspace === tempRoot || workspace.startsWith(tempRoot + path.sep) ||
+      tempRoot.startsWith(workspace + path.sep)) throw new Error('Workspace and temporary storage must not overlap');
   return {
     home, workspace, parent, root, jobIdentity, identity,
+    tempParent, tempRoot, temp,
     build: checkedPath(root, `builds/${env.BUILD_NUMBER}`),
     cache: checkedPath(root, 'cache'),
   };
@@ -114,6 +126,7 @@ function sizeOf(dir) {
 
 function initialize(env = process.env, now = Date.now()) {
   const l = layout(env);
+  assertSocketSafeTemp(l.temp);
   const minFree = numberSetting(env, 'CI_STORAGE_MIN_FREE_GIB', 10) * GIB;
   const maxCache = numberSetting(env, 'CI_STORAGE_CACHE_MAX_GIB', 20) * GIB;
   const maxAge = numberSetting(env, 'CI_STORAGE_CACHE_IDLE_DAYS', 14) * 86400000;
@@ -142,6 +155,12 @@ function initialize(env = process.env, now = Date.now()) {
     throw new Error(`Jenkins storage has ${(available / GIB).toFixed(1)} GiB free; requires ${(minFree / GIB).toFixed(1)} GiB`);
   }
   owned(l.build, l.identity, true);
+  fs.mkdirSync(l.tempParent, { recursive: true, mode: 0o700 });
+  owned(l.tempRoot, l.jobIdentity, true);
+  if (fs.statSync(l.tempRoot).dev !== fs.statSync(l.home).dev) {
+    throw new Error('Temporary storage must use the Jenkins home filesystem');
+  }
+  owned(l.temp, l.identity, true);
   for (const dir of caches) fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   // Tools/SDKs are reusable installations, not caches subject to automatic eviction.
   const tools = checkedPath(l.root, 'tools');
@@ -151,7 +170,7 @@ function initialize(env = process.env, now = Date.now()) {
   const values = {
     CI_STORAGE_BUILD_DIR: l.build,
     HOME: buildDir('home'),
-    TMPDIR: buildDir('tmp'), TMP: buildDir('tmp'), TEMP: buildDir('tmp'),
+    TMPDIR: l.temp, TMP: l.temp, TEMP: l.temp,
     XDG_CACHE_HOME: cacheDir('xdg'),
     XDG_CONFIG_HOME: buildDir('config'), XDG_DATA_HOME: buildDir('data'),
     NPM_CONFIG_CACHE: cacheDir('npm'), npm_config_cache: cacheDir('npm'),
@@ -189,12 +208,19 @@ function cleanup(env = process.env) {
   if (!exists(l.root)) return;
   owned(l.root, l.jobIdentity);
   if (!owned(l.build, l.identity)) return; // Initialization failed before owning a build.
+  // Validate the separate short temp root before deleting any output.
+  let removeTemp = false;
+  if (exists(l.tempRoot)) {
+    owned(l.tempRoot, l.jobIdentity);
+    removeTemp = owned(l.temp, l.identity);
+  }
   // Validate every deletion target before deleting anything, including workspace parents.
   const targets = WORKSPACE_OUTPUTS.map(name => checkedPath(l.workspace, name));
   checkedPath(l.root, path.relative(l.root, l.build));
   for (const target of targets) fs.rmSync(target, { recursive: true, force: true });
+  if (removeTemp) fs.rmSync(l.temp, { recursive: true, force: true });
   fs.rmSync(l.build, { recursive: true, force: true });
-  console.log(`Cleaned owned build storage ${l.build}; preserved reports, other builds, caches and tools`);
+  console.log(`Cleaned owned build storage ${l.build} and temp ${l.temp}; preserved reports, other builds, caches and tools`);
 }
 
 if (require.main === module) {
@@ -210,4 +236,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { initialize, cleanup, layout, CACHE_NAMES, WORKSPACE_OUTPUTS };
+module.exports = { initialize, cleanup, layout, assertSocketSafeTemp, CACHE_NAMES, WORKSPACE_OUTPUTS };

@@ -171,7 +171,10 @@ Jenkins home configuration before it can run this pipeline.
 
 Storage is private to the full Jenkins job name (hashed to avoid folder/name collisions):
 - `${JENKINS_HOME}/ci-storage/<job-hash>/builds/<build-number>/`: disposable HOME,
-  `.wm-reactnative-cli` projects, temporary files, configuration and npm global links.
+  `.wm-reactnative-cli` projects, configuration and npm global links.
+- `${JENKINS_HOME}/ci-tmp/<short-job-hash>/<build-number>/`: separately marked disposable
+  temporary files. This path must be at most 60 UTF-8 bytes to leave room for Chromium's
+  Unix socket names; long Jenkins mount paths fail preflight rather than crash Chrome.
 - The sibling `cache/`: reusable npm, Yarn, Gradle, XDG and browser downloads.
 - The sibling `tools/`: reusable Android SDK and Gradle installations.
 

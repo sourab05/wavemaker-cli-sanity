@@ -1,9 +1,8 @@
 import assert from 'assert';
 import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
 import { execFileSync } from 'child_process';
-const { initialize, cleanup, layout, WORKSPACE_OUTPUTS } = require('../../scripts/jenkins-storage');
+const { initialize, cleanup, layout, assertSocketSafeTemp, WORKSPACE_OUTPUTS } = require('../../scripts/jenkins-storage');
 
 describe('Jenkins managed storage (offline)', () => {
   let tmp: string;
@@ -19,8 +18,9 @@ describe('Jenkins managed storage (offline)', () => {
   }
 
   beforeEach(() => {
-    tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'wm-storage-test-')));
-    const home = path.join(tmp, 'jenkins home = fixture');
+    // A short fixture root exercises the same socket limit on Linux and macOS.
+    tmp = fs.realpathSync(fs.mkdtempSync('/tmp/wms-'));
+    const home = path.join(tmp, 'j = home');
     const workspace = path.join(home, 'workspace', 'folder-job');
     fs.mkdirSync(workspace, { recursive: true });
     env = {
@@ -36,7 +36,7 @@ describe('Jenkins managed storage (offline)', () => {
     const l = layout(env);
     for (const [key, value] of Object.entries(values) as [string, string][]) {
       if (!['PATH', 'JAVA_TOOL_OPTIONS', 'GRADLE_OPTS'].includes(key)) {
-        assert(value.startsWith(l.root + path.sep), `${key} must stay inside job storage`);
+        assert(value.startsWith(l.root + path.sep) || value === l.temp, `${key} must stay inside owned storage`);
       }
     }
     assert.equal(values.NPM_CONFIG_CACHE, values.npm_config_cache);
@@ -63,7 +63,7 @@ describe('Jenkins managed storage (offline)', () => {
       assert(split > 0);
       return [line.slice(0, split), line.slice(split + 1)];
     }));
-    assert(values.HOME.includes('jenkins home = fixture'));
+    assert(values.HOME.includes('j = home'));
     assert(!output.includes('fixture-not-a-secret'));
     assert(!('SNYK_TOKEN' in values));
     assert(fs.existsSync(values.TMPDIR));
@@ -79,6 +79,8 @@ describe('Jenkins managed storage (offline)', () => {
     assert.notEqual(first.NPM_CONFIG_CACHE, other.NPM_CONFIG_CACHE);
     cleanup(env);
     assert(fs.existsSync(second.HOME));
+    assert(fs.existsSync(second.TMPDIR));
+    assert(!fs.existsSync(first.TMPDIR));
     assert(fs.existsSync(other.HOME));
   });
 
@@ -99,6 +101,7 @@ describe('Jenkins managed storage (offline)', () => {
     fs.symlinkSync(path.dirname(preserved[preserved.length - 1]), path.join(values.HOME, 'nested-link'));
     cleanup(env);
     assert(!fs.existsSync(values.CI_STORAGE_BUILD_DIR));
+    assert(!fs.existsSync(values.TMPDIR));
     for (const relative of WORKSPACE_OUTPUTS) assert(!fs.existsSync(path.join(env.WORKSPACE!, relative)));
     for (const name of preserved) assert(fs.existsSync(name), `must preserve ${name}`);
     cleanup(env); // A completed cleanup is idempotent.
@@ -230,6 +233,28 @@ describe('Jenkins managed storage (offline)', () => {
     initialize({ ...env, CI_STORAGE_CACHE_MAX_GIB: '0.000001' }, now + 1);
     assert(fs.existsSync(external));
     assert(!fs.existsSync(path.join(values.NPM_CONFIG_CACHE, 'link')));
+  });
+
+  it('rejects paths exceeding Chromium socket byte limits, including multibyte paths', () => {
+    assertSocketSafeTemp('/var/jenkins_home/ci-tmp/8b7e4a49fb782c48/79');
+    assert.throws(() => assertSocketSafeTemp('/var/jenkins_home/ci-storage/8b7e4a49fb782c4875a56d1a/builds/78/tmp'), /60 bytes/);
+    assert.throws(() => assertSocketSafeTemp('/' + 'é'.repeat(30)), /60 bytes/);
+    assert.doesNotThrow(() => assertSocketSafeTemp('/' + 'x'.repeat(59)));
+  });
+
+  it('refuses mismatched or symlinked short temp ownership before removing workspace data', () => {
+    const values = initialize(env, now);
+    const output = file(path.join(env.WORKSPACE!, 'Artifacts/keep'));
+    const owner = path.join(values.TMPDIR, marker);
+    const original = fs.readFileSync(owner, 'utf8');
+    fs.writeFileSync(owner, original.replace('"build":"42"', '"build":"43"'));
+    assert.throws(() => cleanup(env), /ownership mismatch/);
+    assert(fs.existsSync(output));
+    fs.writeFileSync(owner, original);
+    fs.renameSync(values.TMPDIR, values.TMPDIR + '-saved');
+    fs.symlinkSync(values.TMPDIR + '-saved', values.TMPDIR);
+    assert.throws(() => cleanup(env), /Unsafe storage directory/);
+    assert(fs.existsSync(output));
   });
 
   it('initializes before npm and cleans after report publishing with concurrency disabled', () => {

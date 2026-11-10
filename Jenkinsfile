@@ -554,6 +554,7 @@ pipeline {
                     cd "\$CLI_REPO_PATH"
                     git reset --hard "origin/\${EFFECTIVE_BRANCH}"
                     node "\${WORKSPACE}/scripts/patch-preview-cli.js" "\$CLI_REPO_PATH"
+                    node "\${WORKSPACE}/scripts/patch-build-cli.js" "\$CLI_REPO_PATH"
 
                     echo "--- Configuring npm registry for CLI repo ---"
                     "\${WORKSPACE}/scripts/configure-npm-registry.sh" "\$CLI_REPO_PATH"
