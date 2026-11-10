@@ -161,6 +161,56 @@ findings. Set it to `true` to make findings fail the test.
 Offline validation: `npm run test:unit`, `npx tsc --noEmit`, and shell syntax checks.
 Offline passes do not establish live Studio, BrowserStack, build-tool or S3 availability.
 
+### Jenkins disk isolation and cleanup
+
+`Initialize Build Storage` runs after checkout and before npm configuration or installation.
+It requires a canonical, writable `JENKINS_HOME` on the build agent and a workspace beneath
+it; there is no fallback to `/root` or `/tmp`. This job currently runs on the built-in
+Linux node. An agent without that volume fails explicitly and needs its own mounted
+Jenkins home configuration before it can run this pipeline.
+
+Storage is private to the full Jenkins job name (hashed to avoid folder/name collisions):
+- `${JENKINS_HOME}/ci-storage/<job-hash>/builds/<build-number>/`: disposable HOME,
+  `.wm-reactnative-cli` projects, temporary files, configuration and npm global links.
+- The sibling `cache/`: reusable npm, Yarn, Gradle, XDG and browser downloads.
+- The sibling `tools/`: reusable Android SDK and Gradle installations.
+
+The helper redirects `HOME`, `TMPDIR`/`TMP`/`TEMP`, npm cache/prefix/userconfig (both
+upper- and lowercase forms), `YARN_CACHE_FOLDER`, `GRADLE_USER_HOME`, XDG directories,
+`WEBDRIVER_CACHE_DIR`, `PUPPETEER_CACHE_DIR`, `PLAYWRIGHT_BROWSERS_PATH`, and
+`CYPRESS_CACHE_FOLDER`. WebdriverIO uses `WEBDRIVER_CACHE_DIR` instead of its default
+OS temp directory. Child JVMs receive build-local home/temp properties through
+`JAVA_TOOL_OPTIONS`; `GRADLE_OPTS` disables persistent Gradle daemons. Android tools
+use the managed SDK and build-local Android user directory. The build-local npm bin
+directory is prepended to the existing Jenkins tool PATH.
+
+Credentials still come from Jenkins bindings; no legacy home files are copied.
+Private Git/npm access must use explicit credentials/configuration, not an implicit
+`/root/.ssh` or `/root/.npmrc`. AWS and Snyk environment bindings are unchanged.
+Local runs do not use this helper and retain their existing behavior.
+
+The final `post.cleanup` step runs after archive/upload attempts, on success, failure or
+abort when the agent is reachable. It validates job/build ownership markers and path
+boundaries before removing this build's disposable storage and the existing allowlist
+of generated workspace outputs. It preserves report directories, caches, tools, other
+build directories, and Studio projects. Unsafe boundary symlinks or ownership mismatches
+fail cleanup visibly; dependency symlinks *inside* owned directories are unlinked without
+following their targets. Agent loss can leave orphaned build directories, which require
+separate reviewed recovery; subsequent runs do not automatically delete them.
+
+Concurrent builds of this job are disabled. Before each build starts using caches, the
+helper can recycle **only this job's marked cache directories** if their combined size
+exceeds the limit or the job has not used them within the idle period. This is a
+between-build policy, not an in-build quota. Node environment settings control the limits:
+- `CI_STORAGE_MIN_FREE_GIB`: minimum free space before setup (default `10`).
+- `CI_STORAGE_CACHE_MAX_GIB`: combined managed-cache size limit (default `20`).
+- `CI_STORAGE_CACHE_IDLE_DAYS`: cache inactivity limit (default `14`).
+
+All limits must be positive. Reports retain the existing 15-build Jenkins archive policy;
+the SDK/tools directory is not automatically evicted. Legacy `/root` and `/tmp` data is
+neither migrated nor deleted, so existing root-disk exhaustion still requires approved
+cleanup or capacity expansion.
+
 ### Project Structure
 
 ```

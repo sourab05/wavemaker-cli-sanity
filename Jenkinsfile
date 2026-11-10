@@ -110,10 +110,10 @@ def cliTestScript(String mode, String specFiles, boolean firstPass, String modeL
                         export PROJECT_MODE="${mode}"
                         echo "=== CLI tests — PROJECT_MODE: ${mode} ==="
 
-                        if [ -f "${env.WORKSPACE}/.ci-env.sh" ]; then
+                        if [ -f "${env.CI_STORAGE_BUILD_DIR}/.ci-env.sh" ]; then
                             echo "--- Loading Android CI env ---"
                             set -a
-                            . "${env.WORKSPACE}/.ci-env.sh"
+                            . "${env.CI_STORAGE_BUILD_DIR}/.ci-env.sh"
                             set +a
                             gradle --version
                             echo "ANDROID_HOME=\${ANDROID_HOME}"
@@ -340,6 +340,8 @@ pipeline {
     }
 
     options {
+        // Shared workspace/cache maintenance must never race another run of this job.
+        disableConcurrentBuilds()
         // Clean previous reports before checkout can fail and enter post actions.
         skipDefaultCheckout(true)
         // Archived allure/security reports accumulate per build with no cap otherwise.
@@ -378,8 +380,8 @@ pipeline {
         RN_BUILD_PROFILE = 'development'
         RN_BUILD_EMPTY_JOBS_POLL_LIMIT = '15'
         BROWSERSTACK_VERIFY_SOFT_FAIL = 'false'
-        // Do not reuse or delete a previous build's provisioned Studio project.
-        CI_PROJECT_ENV_FILE = "${WORKSPACE}/.ci-project-env-${BUILD_NUMBER}.sh"
+        // CI_PROJECT_ENV_FILE is assigned in Initialize Build Storage, inside this build's
+        // disposable directory. Previous Studio projects are never reused or deleted.
 
         // 2x local defaults: BUILD 45→90 min, INSTALL 5→10 min
         BUILD_TIMEOUT   = '5400000'
@@ -429,6 +431,28 @@ pipeline {
         stage('Checkout') {
             steps {
                 checkout scm
+                sh 'node --version'
+            }
+        }
+
+        stage('Initialize Build Storage') {
+            steps {
+                script {
+                    env.CI_STORAGE_ATTEMPTED = env.BUILD_TAG
+                    // The dependency-free helper runs before npm can write under the old HOME.
+                    // Assign env directly (never eval shell exports); paths may contain spaces.
+                    def exports = sh(
+                        script: 'node scripts/jenkins-storage.js init',
+                        returnStdout: true
+                    )
+                    exports.readLines().each { line ->
+                        def pair = line.split('=', 2)
+                        if (pair.size() != 2 || !(pair[0] ==~ /[A-Za-z_][A-Za-z0-9_]*/)) {
+                            error('Invalid Jenkins storage environment output')
+                        }
+                        env[pair[0]] = pair[1]
+                    }
+                }
                 sh 'node --version && npm --version'
             }
         }
@@ -814,13 +838,22 @@ pipeline {
             }
         }
         // Runs last, after archiving/S3/email above — regardless of build result.
-        // These dirs are fully regenerated next run (fresh Studio project, fresh npm install),
-        // so there's nothing to preserve. Fixes workspace disk filling up / builds queuing.
+        // Only this build's marked home/temp directories and allowlisted workspace outputs
+        // are disposable. Reports, other builds, shared caches and tools are preserved.
         cleanup {
-            sh '''
-                echo "--- Cleaning workspace build artifacts ---"
-                rm -rf Artifacts src/Artifacts src/rn-zips downloaded-projects .test-cache node_modules wm-reactnative-cli wm-reactnative-cli-security || true
-            '''
+            script {
+                if (env.BUILD_TAG && env.CI_STORAGE_ATTEMPTED == env.BUILD_TAG) {
+                    def cleanupStatus = sh(
+                        script: 'node scripts/jenkins-storage.js cleanup',
+                        returnStatus: true
+                    )
+                    if (cleanupStatus != 0) {
+                        error('Guarded build-storage cleanup failed; retained data requires inspection')
+                    }
+                } else {
+                    echo 'Storage initialization not attempted; skipping build-storage cleanup'
+                }
+            }
         }
     }
 }
