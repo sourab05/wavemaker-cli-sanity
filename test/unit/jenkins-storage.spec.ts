@@ -238,6 +238,8 @@ describe('Jenkins managed storage (offline)', () => {
     assert(pipeline.indexOf("stage('Initialize Build Storage')") < pipeline.indexOf("stage('Configure NPM Registry')"));
     assert(pipeline.indexOf('node scripts/jenkins-storage.js cleanup') > pipeline.lastIndexOf('uploadSecurityReportsToS3(nonFatal: true)'));
     assert(pipeline.includes('env.CI_STORAGE_ATTEMPTED == env.BUILD_TAG'));
+    assert(pipeline.includes('env."${pair[0]}" = pair[1]'));
+    assert(!pipeline.includes('env[pair[0]] = pair[1]'));
     assert(!pipeline.includes('wm-reactnative-cli-security || true'));
     assert(pipeline.includes('${env.CI_STORAGE_BUILD_DIR}/.ci-env.sh'));
   });

@@ -450,7 +450,7 @@ pipeline {
                         if (pair.size() != 2 || !(pair[0] ==~ /[A-Za-z_][A-Za-z0-9_]*/)) {
                             error('Invalid Jenkins storage environment output')
                         }
-                        env[pair[0]] = pair[1]
+                        env."${pair[0]}" = pair[1]
                     }
                 }
                 sh 'node --version && npm --version'
