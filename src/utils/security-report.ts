@@ -2,10 +2,11 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { resolveSecurityReleaseVersion } from '../config/security-project';
 import { readSecurityResult, ScanStatus } from './security-result';
+import { RunIdentity, reportUrl, runConfigurationFields } from './run-identity';
 
 // ─── Public types ─────────────────────────────────────────────────────────────
 
-export interface SecurityReportInput {
+export interface SecurityReportInput extends Partial<RunIdentity> {
   auditReportPath?: string;
   snykReportPath?: string;
   cliVersion?: string;
@@ -421,12 +422,8 @@ export function buildSecurityReportText(input: SecurityReportInput): string {
   return ['Security Vulnerabilities Report', `Generated: ${new Date().toISOString()}`,
     `CLI: ${input.cliBinary || 'unknown'} ${input.cliVersion || ''}`.trim(),
     `Project: ${input.projectPath || 'n/a'}`,
-    `Environment: ${input.environment || 'unknown'}`,
-    `Project mode: ${input.projectMode || 'unknown'}`,
-    `Studio username: ${input.username || 'unknown'}`,
-    `Credential source: ${input.credentialSource || 'not recorded (legacy report)'}`,
-    `Project ID: ${input.projectId || 'unknown'}`,
-    `Studio project ID: ${input.studioProjectId || 'unknown'}`,
+    ...Object.entries(runConfigurationFields({ ...input, suite: 'Security' }))
+      .map(([name, value]) => `${name}: ${value}`),
     `npm audit: ${reportStatus(parseAuditSummary(auditBody), input.auditStatus)}`,
     `Snyk: ${reportStatus(parseSnykSummary(snykBody), input.snykStatus)}`,
     `RN ZIP source: ${input.rnZipSource || 'Studio download'}`,
@@ -552,14 +549,12 @@ export function buildSecurityReportHtml(input: SecurityReportInput): string {
 <div class="container">
   <h1>Vulnerability Report</h1>
   <p class="subtitle">Security audit findings &mdash; npm audit &amp; Snyk &mdash; generated ${escapeHtml(footerDate)}</p>
-  <p class="subtitle">Environment: ${escapeHtml(input.environment || 'unknown')} &mdash; Project mode: ${escapeHtml(input.projectMode || 'unknown')}<br>npm audit: ${escapeHtml(auditStatus)} &mdash; Snyk: ${escapeHtml(snykStatus)}</p>
+  <p class="subtitle">Environment: ${escapeHtml(reportUrl(input.environment))} &mdash; Project mode: ${escapeHtml(input.projectMode || 'unknown')}<br>npm audit: ${escapeHtml(auditStatus)} &mdash; Snyk: ${escapeHtml(snykStatus)}</p>
   <div class="table-wrapper">
     <h2 class="section-title">Run configuration</h2>
     <table><tbody>
-      <tr><td>Studio username</td><td>${escapeHtml(input.username || 'unknown')}</td></tr>
-      <tr><td>Credential source</td><td>${escapeHtml(input.credentialSource || 'not recorded (legacy report)')}</td></tr>
-      <tr><td>Project ID</td><td>${escapeHtml(input.projectId || 'unknown')}</td></tr>
-      <tr><td>Studio project ID</td><td>${escapeHtml(input.studioProjectId || 'unknown')}</td></tr>
+      ${Object.entries(runConfigurationFields({ ...input, suite: 'Security' }))
+        .map(([name, value]) => `<tr><td>${escapeHtml(name)}</td><td>${escapeHtml(value)}</td></tr>`).join('\n      ')}
     </tbody></table>
     <p>Passwords, tokens and cookies are never included.</p>
   </div>

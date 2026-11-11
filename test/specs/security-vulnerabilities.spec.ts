@@ -255,6 +255,7 @@ describe('CLI Security Vulnerabilities (npm audit + Snyk)', function () {
     let snykPathForMeta = snykReportPath;
 
     const meta = {
+      ...getRunIdentity('Security'),
       auditReportPath: auditPathForMeta,
       snykReportPath: snykPathForMeta,
       cliVersion,
@@ -266,7 +267,6 @@ describe('CLI Security Vulnerabilities (npm audit + Snyk)', function () {
       releaseVersion: resolveSecurityReleaseVersion(),
       auditStatus,
       snykStatus,
-      ...getRunIdentity('Security'),
     };
 
     if (auditReportPath && fs.existsSync(auditReportPath)) {

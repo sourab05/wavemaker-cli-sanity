@@ -392,6 +392,8 @@ pipeline {
         SYNC_TIMEOUT    = '900000'
         PACKAGE_MANAGER = "${params.PKG_MANAGER}"
         PROJECT_MODE    = "${selectedProjectMode()}"
+        // Preserve the requested mode when each Both pass exports a concrete PROJECT_MODE.
+        RUN_PROJECT_MODE = "${selectedProjectMode()}"
 
         // Existing Project app config — no longer build params. New Project passes override these
         // from .ci-project-env.sh (written by scripts/provision-studio-project.ts).
