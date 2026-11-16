@@ -272,7 +272,58 @@ export class StudioProjectService {
     log.success(
       `Project created: ${result.wmProjectId} (studio ${result.studioProjectId}) name=${result.appName}`
     );
+    try {
+      await this.createHomePage(wmProjectId, projectName, result.appPackage);
+    } catch (error) {
+      // Provisioning aborts here, so nothing else would ever remove the half-built project.
+      await this.deleteProject(studioProjectId).catch(() => log.warn(`Could not delete ${studioProjectId} after page failure`));
+      throw error;
+    }
     return result;
+  }
+
+  /** A new project has no pages, so tests have nothing to render: add "Main" and make it the home page. */
+  async createHomePage(
+    wmProjectId: string, projectName: string, appPackage: string, pageName = 'Main'
+  ): Promise<void> {
+    const projectUrl = `${this.baseUrl}/studio/services/projects/${wmProjectId}`;
+    const fail = (what: string, res: { status: number; data: unknown }): Error =>
+      new Error(`${what} failed (HTTP ${res.status}): ${JSON.stringify(res.data).slice(0, 400)}`);
+
+    const pageRes = await this.http.post(`${projectUrl}/pages/${pageName}`, {
+      pageType: 'PAGE',
+      pageTitle: pageName,
+      includedPageTypes: ['NAVBAR', 'TABBAR', 'LEFTNAV'],
+      templateName: '',
+      artifactVersion: { artifactId: null, versionId: null },
+    });
+    if (pageRes.status >= 300) throw fail(`Creating page ${pageName}`, pageRes);
+
+    // Studio only accepts a full project-settings PUT (GET on the project is not supported),
+    // so send the defaults Studio's own UI sends, with this project's name/package and homePage.
+    const putRes = await this.http.put(projectUrl, {
+      displayName: projectName,
+      description: '',
+      version: '1.0.0',
+      defaultLanguage: 'en',
+      homePage: pageName,
+      dateFormat: '',
+      timeFormat: '',
+      icon: 'default.png',
+      packagePrefix: appPackage,
+      preferBrowserLang: true,
+      skipSwaggerCodeGen: false,
+      allowedFileUploadExtensions: 'doc, docx, xls, xlsx, csv, pdf, txt, image/*',
+      languageBundleSources: 'STATIC',
+      serviceDefSources: 'STATIC',
+      enableSkipToMainContent: false,
+      enablePrettification: true,
+      projectType: projectDefaults().projectType,
+      platformType: projectDefaults().platformType,
+      template: projectDefaults().template,
+    });
+    if (putRes.status >= 300) throw fail(`Setting ${pageName} as home page`, putRes);
+    log.success(`Page ${pageName} created and set as home page for ${wmProjectId}`);
   }
 
   private async resolveProjectIdsFromListing(

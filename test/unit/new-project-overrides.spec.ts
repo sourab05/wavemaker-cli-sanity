@@ -50,11 +50,28 @@ describe('New Project scoped overrides and safe run reports', () => {
   it('creates with the deployed Studio version rather than a hardcoded or onboarding version', async () => {
     const service = new StudioProjectService('https://fixture.test/', 'auth_cookie=fixture') as any;
     service.runOnboardingPreflight = async () => 5;
+    const projectUrl = 'https://fixture.test/studio/services/projects/WMPRJabc123';
+    const calls: string[] = [];
     service.http.get = async (url: string) => {
       assert.equal(url, 'https://fixture.test/studio/services/studio/about');
       return { status: 200, data: { product: { platformVersion: '12.1.1-GA' } } };
     };
+    service.http.put = async (url: string, body: any) => {
+      calls.push('PUT project');
+      assert.equal(url, projectUrl);
+      assert.equal(body.homePage, 'Main');
+      assert.equal(body.displayName, 'Fixture');
+      assert.equal(body.packagePrefix, 'com.wavemaker.fixture');
+      assert.equal(body.platformType, 'NATIVE_MOBILE');
+      return { status: 200, data: {} };
+    };
     service.http.post = async (url: string, body: any) => {
+      if (url === `${projectUrl}/pages/Main`) {
+        calls.push('POST page');
+        assert.equal(body.pageType, 'PAGE');
+        assert.equal(body.pageTitle, 'Main');
+        return { status: 200, data: {} };
+      }
       assert.equal(url, '/manageProjectsListing/postCreateProject');
       assert.equal(body.platformVersion, '12.1.1-GA');
       assert.equal(body.platformType, 'NATIVE_MOBILE');
@@ -64,6 +81,29 @@ describe('New Project scoped overrides and safe run reports', () => {
     const result = await service.createNativeMobileProject('Fixture');
     assert.equal(result.wmProjectId, 'WMPRJabc123');
     assert.equal(result.studioProjectId, 'proj-fixture');
+    assert.deepEqual(calls, ['POST page', 'PUT project']);
+  });
+
+  it('deletes the half-built project when the page step fails', async () => {
+    const service = new StudioProjectService('https://fixture.test', 'auth_cookie=fixture') as any;
+    service.runOnboardingPreflight = async () => 5;
+    service.http.get = async () => ({ status: 200, data: { product: { platformVersion: '12.1.1-GA' } } });
+    service.http.post = async (url: string) => url.endsWith('/postCreateProject')
+      ? { status: 200, data: { projectId: 'proj-fixture', studioProjectId: 'WMPRJabc123' } }
+      : { status: 500, data: {} };
+    const deleted: string[] = [];
+    service.deleteProject = async (id: string) => { deleted.push(id); };
+    await assert.rejects(service.createNativeMobileProject('Fixture'), /Creating page Main failed/);
+    assert.deepEqual(deleted, ['proj-fixture']);
+  });
+
+  it('fails provisioning when the home page cannot be created', async () => {
+    const service = new StudioProjectService('https://fixture.test', 'auth_cookie=fixture') as any;
+    service.http.post = async () => ({ status: 409, data: { message: 'page exists' } });
+    await assert.rejects(
+      service.createHomePage('WMPRJabc123', 'Fixture', 'com.wavemaker.fixture'),
+      /Creating page Main failed \(HTTP 409\)/
+    );
   });
 
   for (const response of [
