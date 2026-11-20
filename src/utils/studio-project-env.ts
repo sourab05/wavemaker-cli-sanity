@@ -115,9 +115,9 @@ export function writeCiProjectEnvFile(
     `export APP_NAME="${project.appName}"`,
     `export APP_PACKAGE="${project.appPackage}"`,
     `export RN_PROJECT_FOLDER="${project.rnProjectFolder}"`,
-    // PRISM NATIVE_MOBILE defaults for freshly created projects
-    `export APP_VERIFICATION_ID="~mobile_navbar1_title"`,
-    `export WEB_PREVIEW_XPATH="//*[contains(@class,'app-page') or @data-role='page-content']"`,
+    // API-created pages name widgets with a random suffix (wm_mobile_navbar_<id>), so match by pattern.
+    `export APP_VERIFICATION_ID="//*[contains(@content-desc,'mobile_navbar') and contains(@content-desc,'_title')]"`,
+    `export WEB_PREVIEW_XPATH="(//h1[contains(@aria-label,'mobile_navbar') and contains(@aria-label,'_title')])[last()]"`,
     '',
   ];
   fs.mkdirSync(path.dirname(targetPath), { recursive: true });
