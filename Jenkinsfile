@@ -381,10 +381,12 @@ pipeline {
         RN_BUILD_EMPTY_JOBS_POLL_LIMIT = '15'
         BROWSERSTACK_VERIFY_SOFT_FAIL = 'false'
         // CI_PROJECT_ENV_FILE is assigned in Initialize Build Storage, inside this build's
-        // disposable directory. Previous Studio projects are never reused or deleted.
+        // disposable directory. The post-build cleanup deletes the project this build provisioned.
 
         // 2x local defaults: BUILD 45→90 min, INSTALL 5→10 min
         BUILD_TIMEOUT   = '5400000'
+        // BrowserStack Pixel 8 is arm64; building all 4 ABIs pushed native builds past BUILD_TIMEOUT (#105).
+        ORG_GRADLE_PROJECT_reactNativeArchitectures = 'arm64-v8a'
         INSTALL_TIMEOUT = '600000'
 
         RUN_LOCAL       = 'false'
@@ -845,6 +847,10 @@ pipeline {
         // are disposable. Reports, other builds, shared caches and tools are preserved.
         cleanup {
             script {
+                // Before storage cleanup, which removes the file that records this build's project.
+                if (env.CI_PROJECT_ENV_FILE?.trim() && shouldProvisionNewProject()) {
+                    sh 'npx ts-node scripts/delete-provisioned-project.ts || echo "Provisioned project deletion failed (non-fatal)"'
+                }
                 if (env.BUILD_TAG && env.CI_STORAGE_ATTEMPTED == env.BUILD_TAG) {
                     def cleanupStatus = sh(
                         script: 'node scripts/jenkins-storage.js cleanup',

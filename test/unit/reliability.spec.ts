@@ -247,3 +247,16 @@ describe('CLI and security reliability (offline)', () => {
     assert.throws(() => execFileSync(process.execPath, [patcher, index], { stdio: 'pipe' }));
   });
 });
+
+describe('Studio RN build retry', () => {
+  const { isRetryableStudioBuildError } = require('../../src/services/RnProjectManager');
+  const axiosError = (status: number) =>
+    Object.assign(new Error(`Request failed with status code ${status}`), { isAxiosError: true, response: { status } });
+
+  it('retries Studio 5xx responses, not client errors', () => {
+    assert.strictEqual(isRetryableStudioBuildError(axiosError(500)), true);
+    assert.strictEqual(isRetryableStudioBuildError(axiosError(503)), true);
+    assert.strictEqual(isRetryableStudioBuildError(axiosError(401)), false);
+    assert.strictEqual(isRetryableStudioBuildError(new Error('socket hang up')), true);
+  });
+});

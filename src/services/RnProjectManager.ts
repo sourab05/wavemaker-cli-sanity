@@ -128,15 +128,11 @@ function summarizeJobs(jobs: StudioJob[]): string {
     .join('; ');
 }
 
-function isRetryableJobsPollError(error: unknown): boolean {
+export function isRetryableStudioBuildError(error: unknown): boolean {
   if (axios.isAxiosError(error)) {
     const status = error.response?.status;
     if (status && [408, 429, 500, 502, 503, 504].includes(status)) return true;
   }
-  return isRetryableStudioBuildError(error);
-}
-
-function isRetryableStudioBuildError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
   return /internal server error|timeout|timed out|503|502|504|econnreset|etimedout|socket hang up/i.test(
     message
@@ -359,7 +355,7 @@ export class RnProjectManager {
             ? error.response.data
             : JSON.stringify(error.response?.data ?? error.message);
 
-        if (isRetryableJobsPollError(error) && Date.now() < deadline) {
+        if (isRetryableStudioBuildError(error) && Date.now() < deadline) {
           log.warn(
             `Jobs poll error (HTTP ${status ?? 'unknown'}) on poll ${pollCount}; retrying... ${body.slice(0, 200)}`
           );
@@ -597,7 +593,10 @@ export class RnProjectManager {
         return artifacts.projectPath;
       } catch (error: any) {
         buildError = error instanceof Error ? error : new Error(String(error));
-        log.error(`Studio RN build attempt ${attempt}/${maxAttempts} failed: ${buildError.message}`);
+        // Studio wraps the real cause (e.g. a 403 project-access error) in the 500 body.
+        const body = axios.isAxiosError(error) && error.response?.data
+          ? ` — ${JSON.stringify(error.response.data).slice(0, 500)}` : '';
+        log.error(`Studio RN build attempt ${attempt}/${maxAttempts} failed: ${buildError.message}${body}`);
 
         if (isRetryableStudioBuildError(buildError) && attempt < maxAttempts) {
           log.warn(
